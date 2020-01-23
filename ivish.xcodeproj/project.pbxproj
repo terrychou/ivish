@@ -7,13 +7,31 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DE2B255323CC0C8F0018460E /* LineHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2B255223CC0C8F0018460E /* LineHistory.swift */; };
+		DE32063C23CFFFDF00E277E8 /* ivishcallbacks.h in Headers */ = {isa = PBXBuildFile; fileRef = DE32063B23CFFBA800E277E8 /* ivishcallbacks.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		DE99CE9A23C706DF000098E9 /* ivish.h in Headers */ = {isa = PBXBuildFile; fileRef = DE99CE9823C706DF000098E9 /* ivish.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		DE99CEB023C70771000098E9 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DE99CEAF23C70771000098E9 /* main.m */; };
+		DE99CEB623C70B48000098E9 /* ios_system.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE99CEB223C7083E000098E9 /* ios_system.framework */; };
+		DE99CEBA23C70E09000098E9 /* Shell.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE99CEB923C70E09000098E9 /* Shell.swift */; };
+		DEE9614823CD9A2E00B89BE3 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE9614723CD9A2E00B89BE3 /* Config.swift */; };
+		DEE9614A23CDA34200B89BE3 /* InterruptHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE9614923CDA34200B89BE3 /* InterruptHandler.swift */; };
+		DEEC0FC323D29C6D00BED7DB /* Completer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEEC0FC223D29C6D00BED7DB /* Completer.swift */; };
+		DEED503D23C9B867002B6C0C /* LineReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEED503C23C9B867002B6C0C /* LineReader.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		DE2B255223CC0C8F0018460E /* LineHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineHistory.swift; sourceTree = "<group>"; };
+		DE32063B23CFFBA800E277E8 /* ivishcallbacks.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ivishcallbacks.h; sourceTree = "<group>"; };
 		DE99CE9523C706DF000098E9 /* ivish.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = ivish.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		DE99CE9823C706DF000098E9 /* ivish.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ivish.h; sourceTree = "<group>"; };
 		DE99CE9923C706DF000098E9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		DE99CEAF23C70771000098E9 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		DE99CEB223C7083E000098E9 /* ios_system.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ios_system.framework; path = ../frameworks/ios_system.framework; sourceTree = "<group>"; };
+		DE99CEB923C70E09000098E9 /* Shell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell.swift; sourceTree = "<group>"; };
+		DEE9614723CD9A2E00B89BE3 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
+		DEE9614923CDA34200B89BE3 /* InterruptHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterruptHandler.swift; sourceTree = "<group>"; };
+		DEEC0FC223D29C6D00BED7DB /* Completer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Completer.swift; sourceTree = "<group>"; };
+		DEED503C23C9B867002B6C0C /* LineReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineReader.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -21,6 +39,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DE99CEB623C70B48000098E9 /* ios_system.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -32,6 +51,7 @@
 			children = (
 				DE99CE9723C706DF000098E9 /* ivish */,
 				DE99CE9623C706DF000098E9 /* Products */,
+				DE99CEB123C7083E000098E9 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -48,8 +68,24 @@
 			children = (
 				DE99CE9823C706DF000098E9 /* ivish.h */,
 				DE99CE9923C706DF000098E9 /* Info.plist */,
+				DE99CEAF23C70771000098E9 /* main.m */,
+				DE99CEB923C70E09000098E9 /* Shell.swift */,
+				DEED503C23C9B867002B6C0C /* LineReader.swift */,
+				DE2B255223CC0C8F0018460E /* LineHistory.swift */,
+				DEE9614723CD9A2E00B89BE3 /* Config.swift */,
+				DEEC0FC223D29C6D00BED7DB /* Completer.swift */,
+				DEE9614923CDA34200B89BE3 /* InterruptHandler.swift */,
+				DE32063B23CFFBA800E277E8 /* ivishcallbacks.h */,
 			);
 			path = ivish;
+			sourceTree = "<group>";
+		};
+		DE99CEB123C7083E000098E9 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				DE99CEB223C7083E000098E9 /* ios_system.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -60,6 +96,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DE99CE9A23C706DF000098E9 /* ivish.h in Headers */,
+				DE32063C23CFFFDF00E277E8 /* ivishcallbacks.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -95,6 +132,7 @@
 				TargetAttributes = {
 					DE99CE9423C706DF000098E9 = {
 						CreatedOnToolsVersion = 11.3;
+						LastSwiftMigration = 1130;
 					};
 				};
 			};
@@ -131,6 +169,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DEEC0FC323D29C6D00BED7DB /* Completer.swift in Sources */,
+				DEED503D23C9B867002B6C0C /* LineReader.swift in Sources */,
+				DE99CEBA23C70E09000098E9 /* Shell.swift in Sources */,
+				DEE9614A23CDA34200B89BE3 /* InterruptHandler.swift in Sources */,
+				DEE9614823CD9A2E00B89BE3 /* Config.swift in Sources */,
+				DE2B255323CC0C8F0018460E /* LineHistory.swift in Sources */,
+				DE99CEB023C70771000098E9 /* main.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -260,22 +305,32 @@
 		DE99CE9E23C706DF000098E9 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				DEFINES_MODULE = YES;
 				DEVELOPMENT_TEAM = LGM6M9XA5D;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Frameworks",
+				);
 				INFOPLIST_FILE = ivish/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				IPHONEOS_DEPLOYMENT_TARGET = 9.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.terrychou.ivish;
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				SKIP_INSTALL = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -284,14 +339,21 @@
 		DE99CE9F23C706DF000098E9 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				DEFINES_MODULE = YES;
 				DEVELOPMENT_TEAM = LGM6M9XA5D;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Frameworks",
+				);
 				INFOPLIST_FILE = ivish/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				IPHONEOS_DEPLOYMENT_TARGET = 9.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -300,6 +362,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.terrychou.ivish;
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				SKIP_INSTALL = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

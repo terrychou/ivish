@@ -7,6 +7,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#import "ivishcallbacks.h"
 
 //! Project version number for ivish.
 FOUNDATION_EXPORT double ivishVersionNumber;
