@@ -22,7 +22,6 @@ public class Shell: NSObject {
     let input: Int32
     let output: Int32
     let error: Int32
-    let session: sessionParameters
     var lnReader: LineReader?
     var cmdLnReader: LineReader?
     var promptText: String?
@@ -45,14 +44,11 @@ public class Shell: NSObject {
     
     var completer: Completer!
     
-    lazy var callbacks = {
-        return self.session.context.bindMemory(
-            to: ivish_callbacks_t.self,
-            capacity: 1)
-    }()
+    let callbacks: UnsafeMutablePointer<ivish_callbacks_t>?
     
     @objc public override init() {
-        self.session = ios_getSession(nil)
+        self.callbacks = ios_getContext()?.bindMemory(to: ivish_callbacks_t.self,
+                                                      capacity: 1)
         self.input = fileno(thread_stdin)
         self.output = fileno(thread_stdout)
         self.error = fileno(thread_stderr)
@@ -201,7 +197,7 @@ extension Shell {
     private func handleIntForForegroundCmd() {
         if let handler = self.intHandler {
             self.withCurrentCommand {
-                if let cmd = $0.session?.commandName {
+                if let cmd = $0.intCandidate {
                     handler.handle(
                         cmdName: cmd,
                         output: {
@@ -211,6 +207,10 @@ extension Shell {
                         tid: ios_getThreadId($0.pid),
                         eof: self.handleEOFForForegroundCmd)
                 } else {
+                    if self.currentTermMode() == .line {
+                        self.outputToForegroundCmd("\n")
+                        self.putString("\n")
+                    }
                     NSLog("failed to get command name for pid \($0.pid)")
                 }
             }
@@ -295,25 +295,52 @@ extension Shell {
         return line.commandComponents[0]
     }
     
-    private func initTermMode(for cName: String) {
-        let mode = TermMode(rawValue: self.cmdDb?.property(
-            .termMode,
-            of: cName) ?? "line")!
+    private func tuneForTermMode(_ mode: TermMode) {
         self.currentInputReceiver = mode == .line ?
             self.cmdInputPipe?.output :
             self.cmdPipeWriteFd
     }
     
-    private func preCmd(_ cmd: String) -> CommandInfo {
-        let uuid = UUID().uuidString
-        let info = CommandInfo(uuid: uuid,
-                               pid: ios_fork(),
-                               cmdLine: cmd)
-        self.runningCmds[uuid] = info
-        let cName = self.commandName(from: cmd)
-        self.initTermMode(for: cName)
+    private func tuneTermMode(for cmd: String) {
+        let value = self.cmdDb?.property(.termMode, of: cmd)
+        let mode = value.flatMap { TermMode(rawValue: $0) } ?? .line
+        self.tuneForTermMode(mode)
+    }
+    
+    private func ttyProvider(_ cName: String?,
+                             context: NSMutableString?) -> Int32 {
+        guard let cn = cName else { return -1 }
+        if let ctx = context {
+            ctx.append(self.currentTermMode().rawValue)
+        }
+        self.tuneTermMode(for: cn)
         
-        return info
+        return fileno(self.inStream)
+    }
+    
+    private func ttyRestorer(_ context: String?) {
+        guard let ctx = context,
+            let mode = TermMode(rawValue: ctx) else { return }
+        self.tuneForTermMode(mode)
+    }
+    
+    private func currentTermMode() -> TermMode {
+        return self.currentInputReceiver.map {
+            $0 == self.cmdPipeWriteFd ? .raw : .line
+            } ?? .line
+    }
+    
+    private func preCmd(_ cmd: String,
+                        uuid: String,
+                        pid: pid_t,
+                        sid: UInt) {
+        let info = CommandInfo(cmdLine: cmd,
+                               pid: pid,
+                               sid: sid)
+        self.runningCmds[uuid] = info
+        // initialize term mode
+        let name = self.commandName(from: cmd)
+        self.tuneTermMode(for: name)
     }
     
     private func postCmd(_ cmd: String, uuid: String) {
@@ -330,9 +357,19 @@ extension Shell {
         }
     }
     
+    /// `getenv` got override in ios_system
+    /// values of `COLUMNS`, `ROWS` or `LINES` are intercepted
+    /// and need to save via `ios_setWindowSize` for each
+    /// session
+    private func setWindowSize() {
+        let width = atoi(getenv("COLUMNS"))
+        let height = atoi(getenv("LINES"))
+        ios_setWindowSize(width, height)
+    }
+    
     private func runCommand(_ cmd: String) {
-        let info = self.preCmd(cmd)
-        let uuid = info.uuid
+        let uuid = UUID().uuidString
+        let pid = ios_fork()
         self.currentForegroundCmd = uuid
         let in_stream = self.inStream
         let out_stream = self.outStream
@@ -343,11 +380,16 @@ extension Shell {
                 thread_stdin = nil
                 thread_stdout = nil
                 thread_stderr = nil
+                self.preCmd(cmd,
+                            uuid: uuid,
+                            pid: pid,
+                            sid: ios_sessionId(sid))
                 ios_switchSession(sid)
-                info.session = ios_getSession(sid)
+                ios_setTTYProvider(self.ttyProvider)
+                ios_setTTYRestorer(self.ttyRestorer)
                 ios_setStreams(in_stream, out_stream, out_stream)
+                self.setWindowSize()
                 ios_system(cmd)
-                info.session = nil
                 ios_closeSession(sid)
                 self.postCmd(cmd, uuid: uuid)
             }
@@ -501,23 +543,23 @@ extension Shell {
 
 extension Shell {
     private func availableCommands(for pattern: String? = nil) -> [String] {
-        return self.callbacks.pointee.available_commands.map {
+        return self.callbacks?.pointee.available_commands.map {
             $0(pattern)
         } ?? []
     }
     
     private func runExCommand(_ cmd: String) {
-        self.callbacks.pointee.run_ex_command?(cmd)
+        self.callbacks?.pointee.run_ex_command?(cmd)
     }
     
     private func setupCellsCaculator() {
-        if let cc = self.callbacks.pointee.cells_caculator {
+        if let cc = self.callbacks?.pointee.cells_caculator {
             gCellsCaculator = { cc(Int32($0)) }
         }
     }
     
     private func expandFilenames(_ pattern: String) -> [String] {
-        return self.callbacks.pointee.expand_filenames.map {
+        return self.callbacks?.pointee.expand_filenames.map {
             $0(pattern + "*")
         } ?? []
     }
@@ -574,16 +616,16 @@ internal struct UnsafePipe {
     }
 }
 
-internal class CommandInfo {
+internal struct CommandInfo {
     let cmdLine: String
     let pid: pid_t
-    let uuid: String
-    weak var session: sessionParameters?
+    let sid: UInt
     
-    init(uuid: String, pid: pid_t, cmdLine: String) {
-        self.uuid = uuid
-        self.pid = pid
-        self.cmdLine = cmdLine
+    var intCandidate: String? {
+        let rootCmd = ios_getSessionRootCmdName(self.sid)
+        let currentCmd = ios_getSessionCurrentCmdName(self.sid)
+        
+        return rootCmd == currentCmd ? rootCmd : nil
     }
 }
 

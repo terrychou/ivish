@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 50;
+	objectVersion = 52;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -11,8 +11,8 @@
 		DE32063C23CFFFDF00E277E8 /* ivishcallbacks.h in Headers */ = {isa = PBXBuildFile; fileRef = DE32063B23CFFBA800E277E8 /* ivishcallbacks.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		DE99CE9A23C706DF000098E9 /* ivish.h in Headers */ = {isa = PBXBuildFile; fileRef = DE99CE9823C706DF000098E9 /* ivish.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		DE99CEB023C70771000098E9 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DE99CEAF23C70771000098E9 /* main.m */; };
-		DE99CEB623C70B48000098E9 /* ios_system.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE99CEB223C7083E000098E9 /* ios_system.framework */; };
 		DE99CEBA23C70E09000098E9 /* Shell.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE99CEB923C70E09000098E9 /* Shell.swift */; };
+		DEDC6A6226DE178300075589 /* ios_system.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = DEDC6A6126DE178300075589 /* ios_system.xcframework */; };
 		DEE9614823CD9A2E00B89BE3 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE9614723CD9A2E00B89BE3 /* Config.swift */; };
 		DEE9614A23CDA34200B89BE3 /* InterruptHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE9614923CDA34200B89BE3 /* InterruptHandler.swift */; };
 		DEEC0FC323D29C6D00BED7DB /* Completer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEEC0FC223D29C6D00BED7DB /* Completer.swift */; };
@@ -28,6 +28,7 @@
 		DE99CEAF23C70771000098E9 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		DE99CEB223C7083E000098E9 /* ios_system.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ios_system.framework; path = ../frameworks/ios_system.framework; sourceTree = "<group>"; };
 		DE99CEB923C70E09000098E9 /* Shell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell.swift; sourceTree = "<group>"; };
+		DEDC6A6126DE178300075589 /* ios_system.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ios_system.xcframework; path = ../frameworks/ios_system.xcframework; sourceTree = "<group>"; };
 		DEE9614723CD9A2E00B89BE3 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		DEE9614923CDA34200B89BE3 /* InterruptHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterruptHandler.swift; sourceTree = "<group>"; };
 		DEEC0FC223D29C6D00BED7DB /* Completer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Completer.swift; sourceTree = "<group>"; };
@@ -39,7 +40,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DE99CEB623C70B48000098E9 /* ios_system.framework in Frameworks */,
+				DEDC6A6226DE178300075589 /* ios_system.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -83,6 +84,7 @@
 		DE99CEB123C7083E000098E9 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				DEDC6A6126DE178300075589 /* ios_system.xcframework */,
 				DE99CEB223C7083E000098E9 /* ios_system.framework */,
 			);
 			name = Frameworks;
@@ -305,7 +307,6 @@
 		DE99CE9E23C706DF000098E9 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				DEFINES_MODULE = YES;
@@ -319,7 +320,7 @@
 				);
 				INFOPLIST_FILE = ivish/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
-				IPHONEOS_DEPLOYMENT_TARGET = 9.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 10.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -329,6 +330,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.terrychou.ivish;
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				SKIP_INSTALL = YES;
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -339,7 +341,6 @@
 		DE99CE9F23C706DF000098E9 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				DEFINES_MODULE = YES;
@@ -353,7 +354,7 @@
 				);
 				INFOPLIST_FILE = ivish/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
-				IPHONEOS_DEPLOYMENT_TARGET = 9.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 10.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -362,6 +363,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.terrychou.ivish;
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				SKIP_INSTALL = YES;
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
