@@ -46,6 +46,8 @@ public class Shell: NSObject {
     
     let callbacks: UnsafeMutablePointer<ivish_callbacks_t>?
     
+    private lazy var aliases = Aliases()
+    
     @objc public override init() {
         self.callbacks = ios_getContext()?.bindMemory(to: ivish_callbacks_t.self,
                                                       capacity: 1)
@@ -76,6 +78,7 @@ extension Shell {
         self.initConfig()
         self.setupInStream()
         self.setupCompleter()
+        self.setupLineReaderCallbacks()
         self.loadHistory()
     }
     
@@ -111,8 +114,16 @@ extension Shell {
             (InternalCommand.commands(for: $0) + self.availableCommands(for: $0)).sorted()
         }, filenames: self.expandFilenames)
         self.completer = Completer(helper: helper)
+    }
+    
+    private func setupLineReaderCallbacks() {
         self.lnReader?.hintCallback = self.completer.hint
         self.lnReader?.completionCallback = self.completer.complete
+        self.lnReader?.sublineCallback = { lineState in
+            return self.aliases.translate(cmdline: lineState.buffer).map {
+                "= " + $0.term256Colorized(247)
+            }
+        }
     }
     
     private func initIntHandler() -> InterruptHandler? {
@@ -244,6 +255,10 @@ private extension String {
             String($0)
         }
     }
+    
+    func commandTokens(count: Int=0) -> CmdLineTokenizer.Result {
+        return try! CmdLineTokenizer(line: self).tokenize(count: count)
+    }
 }
 
 private extension Array where Element == String {
@@ -292,7 +307,7 @@ extension Shell {
     }
     
     private func commandName(from line: String) -> String {
-        return line.commandComponents[0]
+        return line.commandTokens(count: 1).token(at: 0) ?? ""
     }
     
     private func tuneForTermMode(_ mode: TermMode) {
@@ -432,15 +447,22 @@ extension Shell {
         done: while true {
             do {
                 self.putString(self.prompt)
-                let line = try self.lnReader!.readline()
+                var line = try self.lnReader!.readline()
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 self.putString("\n")
                 if line.isEmpty {
                     continue
                 }
-                let comps = line.commandComponents
-                try self.handleNestingShell(comps)
-                if try self.handleInternalCmd(comps) {
+                let tokens = line.commandTokens()
+                if let unfinished = tokens.unfinished {
+                    self.showError("unfinished \(unfinished.escape.rawValue)")
+                    continue
+                }
+                if let translated = self.aliases.translate(cmdline: line) {
+                    line = translated
+                }
+                try self.handleNestingShell(tokens)
+                if try self.handleInternalCmd(tokens) {
                     continue
                 } else {
                     self.runCommand(line)
@@ -475,25 +497,29 @@ extension Shell {
 }
 
 extension Shell {
-    private func handleNestingShell(_ comps: [String]) throws {
-        if comps.first == shellName {
-            try self.nestShell(comps)
+    private func handleNestingShell(_ tokens: CmdTokens) throws {
+        if tokens.token(at: 0) == shellName {
+            try self.nestShell(tokens)
         }
     }
     
-    private func handleInternalCmd(_ comps: [String]) throws -> Bool {
+    private func handleInternalCmd(_ tokens: CmdTokens) throws -> Bool {
         // return true if handled
-        guard let name = comps.first,
+        guard let name = tokens.token(at: 0),
             let cmd = InternalCommand(rawValue: String(name))
             else { return false }
         let handled = true
         switch cmd {
+        case .alias:
+            try self.cmdAlias(tokens)
         case .exit:
             try self.exitShell()
         case .help:
-            self.showHelp(comps)
+            self.showHelp(tokens)
         case .history:
-            self.shellHistory(comps)
+            self.shellHistory(tokens)
+        case .unalias:
+            try self.cmdUnalias(tokens)
         }
         
         return handled
@@ -527,19 +553,86 @@ extension Shell {
         throw ShellException.exit
     }
     
-    private func shellHistory(_ comps: [String]) {
+    private func shellHistory(_ tokens: CmdTokens) {
         let list = self.lnReader!.currentHistoryList()
         self.putString(list)
     }
     
-    private func nestShell(_ comps: [String]) throws {
+    private func nestShell(_ tokens: CmdTokens) throws {
         throw ShellException.error("nesting shell not supported")
     }
     
-    private func showHelp(_ comps: [String]) {
+    private func showHelp(_ tokens: CmdTokens) {
         self.runExCommand("call feedkeys(\"\\<C-W>:help ivish\\<Enter>\", 'n')")
     }
 }
+
+extension Shell { // aliases
+    private func cmdAlias(_ tokens: CmdTokens) throws {
+        try self.handleAliasArgs(Array(tokens.tokens[1...]))
+    }
+    
+    /// handle arguments given to `alias` command:
+    /// 1) add new alias if "name=value" pair;
+    /// 2) find and print existing alias if not the = pair
+    /// 3) print all existing aliases if no args given
+    private func handleAliasArgs(_ args: [String]) throws {
+        guard !args.isEmpty else {
+            return self.printAllAliases()
+        }
+        for arg in args {
+            let alias = Aliases.parseAlias(from: arg)
+            if let rep = alias.replacement {
+                // try and add new alias
+                if let eMsg = self.aliases.tryAddAlias(name: alias.name,
+                                                       replacement: rep) {
+                    self.showError("alias: " + eMsg)
+                }
+            } else {
+                // find and print alias with `name`
+                self.printReusableAlias(for: arg)
+            }
+        }
+    }
+    
+    private func printAllAliases() {
+        let sortedNames = self.aliases.allNames().sorted()
+        for name in sortedNames {
+            self.printReusableAlias(for: name)
+        }
+    }
+    
+    private func printReusableAlias(for name: String) {
+        if let found = self.aliases.reusableAlias(for: name, cmdName: "alias") {
+            self.putString(found + "\n")
+        } else {
+            self.showError("alias: \(name): not found")
+        }
+    }
+    
+    /// remove aliases with given names `tokens`
+    ///
+    /// remove all existing aliases if option "-a" is given,
+    /// and all arguments after it will be ignored
+    private func cmdUnalias(_ tokens: CmdTokens) throws {
+        for token in tokens.tokens[1...] {
+            if token == "-a" {
+                self.removeAllAliases()
+                break
+            } else if !self.aliases.remove(name: token) {
+                self.showError("unalias: \(token): not found")
+            }
+        }
+    }
+    
+    private func removeAllAliases() {
+        for name in self.aliases.allNames() {
+            self.aliases.remove(name: name)
+        }
+    }
+}
+
+private typealias CmdTokens = CmdLineTokenizer.Result
 
 extension Shell {
     private func availableCommands(for pattern: String? = nil) -> [String] {
@@ -630,6 +723,8 @@ internal struct CommandInfo {
 }
 
 internal enum InternalCommand: String, CaseIterable {
+    case alias
+    case unalias
     case exit
     case help
     case history
@@ -647,4 +742,20 @@ internal enum InternalCommand: String, CaseIterable {
 internal enum TermMode: String {
     case raw
     case line
+}
+
+/// character set for shell syntax
+/// refer to bash source code syntax.h
+extension CharacterSet {
+    static let shellBreak = Self(charactersIn: "()<>;&| \t\n")
+    static let shellQuote = Self(charactersIn: "\"`'")
+    // shell x quote: shell quote + backslash
+    static let shellXQuote = Self.shellQuote.union(.init(charactersIn: "\\"))
+    static let shellExpansion = Self(charactersIn: "$<>")
+    static let shellPathSeparator = Self(charactersIn: "/")
+    
+    static let illegalAliasName = Self.shellBreak.union(
+        Self.shellXQuote.union(
+            Self.shellExpansion.union(
+                Self.shellPathSeparator)))
 }

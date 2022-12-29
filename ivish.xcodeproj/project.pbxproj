@@ -7,12 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DE03F369295046AB007E3284 /* Quotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE03F368295046AB007E3284 /* Quotes.swift */; };
 		DE2B255323CC0C8F0018460E /* LineHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2B255223CC0C8F0018460E /* LineHistory.swift */; };
 		DE32063C23CFFFDF00E277E8 /* ivishcallbacks.h in Headers */ = {isa = PBXBuildFile; fileRef = DE32063B23CFFBA800E277E8 /* ivishcallbacks.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		DE433D6829481F02009FC16F /* Aliases.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE433D6729481F02009FC16F /* Aliases.swift */; };
+		DE709B342951F17500ADDCD9 /* Env.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE709B332951F17500ADDCD9 /* Env.swift */; };
 		DE99CE9A23C706DF000098E9 /* ivish.h in Headers */ = {isa = PBXBuildFile; fileRef = DE99CE9823C706DF000098E9 /* ivish.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		DE99CEB023C70771000098E9 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DE99CEAF23C70771000098E9 /* main.m */; };
 		DE99CEBA23C70E09000098E9 /* Shell.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE99CEB923C70E09000098E9 /* Shell.swift */; };
 		DEDC6A6226DE178300075589 /* ios_system.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = DEDC6A6126DE178300075589 /* ios_system.xcframework */; };
+		DEDCBB04294AC50500CB8185 /* CmdLineTokenizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEDCBB03294AC50500CB8185 /* CmdLineTokenizer.swift */; };
 		DEE9614823CD9A2E00B89BE3 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE9614723CD9A2E00B89BE3 /* Config.swift */; };
 		DEE9614A23CDA34200B89BE3 /* InterruptHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE9614923CDA34200B89BE3 /* InterruptHandler.swift */; };
 		DEEC0FC323D29C6D00BED7DB /* Completer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEEC0FC223D29C6D00BED7DB /* Completer.swift */; };
@@ -20,8 +24,11 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		DE03F368295046AB007E3284 /* Quotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Quotes.swift; sourceTree = "<group>"; };
 		DE2B255223CC0C8F0018460E /* LineHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineHistory.swift; sourceTree = "<group>"; };
 		DE32063B23CFFBA800E277E8 /* ivishcallbacks.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ivishcallbacks.h; sourceTree = "<group>"; };
+		DE433D6729481F02009FC16F /* Aliases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aliases.swift; sourceTree = "<group>"; };
+		DE709B332951F17500ADDCD9 /* Env.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Env.swift; sourceTree = "<group>"; };
 		DE99CE9523C706DF000098E9 /* ivish.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = ivish.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		DE99CE9823C706DF000098E9 /* ivish.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ivish.h; sourceTree = "<group>"; };
 		DE99CE9923C706DF000098E9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -29,6 +36,7 @@
 		DE99CEB223C7083E000098E9 /* ios_system.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ios_system.framework; path = ../frameworks/ios_system.framework; sourceTree = "<group>"; };
 		DE99CEB923C70E09000098E9 /* Shell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell.swift; sourceTree = "<group>"; };
 		DEDC6A6126DE178300075589 /* ios_system.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ios_system.xcframework; path = ../frameworks/ios_system.xcframework; sourceTree = "<group>"; };
+		DEDCBB03294AC50500CB8185 /* CmdLineTokenizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmdLineTokenizer.swift; sourceTree = "<group>"; };
 		DEE9614723CD9A2E00B89BE3 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		DEE9614923CDA34200B89BE3 /* InterruptHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterruptHandler.swift; sourceTree = "<group>"; };
 		DEEC0FC223D29C6D00BED7DB /* Completer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Completer.swift; sourceTree = "<group>"; };
@@ -71,7 +79,11 @@
 				DE99CE9923C706DF000098E9 /* Info.plist */,
 				DE99CEAF23C70771000098E9 /* main.m */,
 				DE99CEB923C70E09000098E9 /* Shell.swift */,
+				DE03F368295046AB007E3284 /* Quotes.swift */,
+				DEDCBB03294AC50500CB8185 /* CmdLineTokenizer.swift */,
+				DE433D6729481F02009FC16F /* Aliases.swift */,
 				DEED503C23C9B867002B6C0C /* LineReader.swift */,
+				DE709B332951F17500ADDCD9 /* Env.swift */,
 				DE2B255223CC0C8F0018460E /* LineHistory.swift */,
 				DEE9614723CD9A2E00B89BE3 /* Config.swift */,
 				DEEC0FC223D29C6D00BED7DB /* Completer.swift */,
@@ -173,11 +185,15 @@
 			files = (
 				DEEC0FC323D29C6D00BED7DB /* Completer.swift in Sources */,
 				DEED503D23C9B867002B6C0C /* LineReader.swift in Sources */,
+				DE03F369295046AB007E3284 /* Quotes.swift in Sources */,
+				DEDCBB04294AC50500CB8185 /* CmdLineTokenizer.swift in Sources */,
+				DE433D6829481F02009FC16F /* Aliases.swift in Sources */,
 				DE99CEBA23C70E09000098E9 /* Shell.swift in Sources */,
 				DEE9614A23CDA34200B89BE3 /* InterruptHandler.swift in Sources */,
 				DEE9614823CD9A2E00B89BE3 /* Config.swift in Sources */,
 				DE2B255323CC0C8F0018460E /* LineHistory.swift in Sources */,
 				DE99CEB023C70771000098E9 /* main.m in Sources */,
+				DE709B342951F17500ADDCD9 /* Env.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

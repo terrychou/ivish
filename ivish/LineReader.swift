@@ -45,40 +45,78 @@ public enum AnsiCode {
     case eraseRight
     case homeCursor
     case clearScreen
-    case cursorLocation
+    case queryCursorLocation
     case saveCursor
-    case unsaveCursor
+    case restoreCursor
     case cursorForward(Int) // (columns)
     case cursorBackward(Int) // (columns)
     case termColor(Int, Bool) // (color, bold)
     case termColor256(Int) // (color)
     case originTermColor
+    case cursorUp(Int) // (lines)
+    case cursorDown(Int) // (lines)
+    case cursorUpHome(Int) // (lines)
+    case cursorDownHome(Int) // (lines)
+    case eraseCursorRow
+    case scrollUp(Int) // (lines)
+    case scrollDown(Int) // (lines)
+    case cursorDownMayScroll
+    case cursorUpMayScroll
+    case cursorToColumn(Int) // column
     
+    /// references:
+    /// https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
+    /// https://notes.burke.libbey.me/ansi-escape-codes/
+    /// https://www.wiki.robotz.com/index.php/ANSI_and_VT100_Terminal_Control_Escape_Sequences
     var escaped: String {
         let code: String
         switch self {
-        case .eraseRight: code = "0K"
-        case .homeCursor: code = "H"
-        case .clearScreen: code = "2J"
-        case .cursorLocation: code = "6n"
-        case .saveCursor: code = "s"
-        case .unsaveCursor: code = "u"
+        case .eraseRight: code = "[0K"
+        case .homeCursor: code = "[H"
+        case .clearScreen: code = "[2J"
+        case .queryCursorLocation: code = "[6n"
+        case .saveCursor: code = "7"
+        case .restoreCursor: code = "8"
         case let .cursorForward(cs):
-            code = "\(cs)C"
+            code = "[\(cs)C"
         case let .cursorBackward(cs):
-            code = "\(cs)D"
+            code = "[\(cs)D"
         case let .termColor(color, bold):
-            code = "\(bold ? 1 : 0);\(color)m"
+            code = "[\(bold ? 1 : 0);\(color)m"
         case let .termColor256(color):
-            code = "38;5;\(color)m"
-        case .originTermColor: code = "0m"
+            code = "[38;5;\(color)m"
+        case .originTermColor: code = "[0m"
+        case let .cursorUp(ls):
+            code = "[\(ls)A"
+        case let .cursorDown(ls):
+            code = "[\(ls)B"
+        case let .cursorUpHome(ls):
+            code = "[\(ls)F"
+        case let .cursorDownHome(ls):
+            code = "[\(ls)E"
+        case .eraseCursorRow:
+            code = "[2K"
+        case let .scrollUp(ls):
+            code = "[\(ls)S"
+        case let .scrollDown(ls):
+            code = "[\(ls)T"
+        case .cursorDownMayScroll:
+            code = "D"
+        case .cursorUpMayScroll:
+            code = "M"
+        case let .cursorToColumn(c):
+            code = "[\(c)G"
         }
         
-        return "\u{001B}[\(code)"
+        return "\u{001B}\(code)"
     }
 }
 
 public extension String {
+    init(ansicode: AnsiCode) {
+        self = ansicode.escaped
+    }
+    
     private func colorized(with ac: AnsiCode) -> String {
         return ac.escaped + self + AnsiCode.originTermColor.escaped
     }
@@ -89,6 +127,10 @@ public extension String {
     
     func term256Colorized(_ color: Int) -> String {
         return self.colorized(with: .termColor256(color))
+    }
+    
+    func restoreCursorAfterwards() -> String {
+        return AnsiCode.saveCursor.escaped + self + AnsiCode.restoreCursor.escaped
     }
 }
 
@@ -114,6 +156,14 @@ public class LineReader {
     var completionCallback: CompletionCallback?
     var keptLineState: LineState?
     
+    // for unfinished quote hinting
+    private var unfinishedQuoteStartAt: String.Index?
+    
+    // for subline
+    typealias SublineCallback = (LineState) -> String?
+    var sublineCallback: SublineCallback?
+    private var numSublineRowsShown = 0
+    
     init(input: FileDescriptor, output: FileDescriptor) {
         self.input = input
         self.output = output
@@ -138,13 +188,67 @@ private extension Int {
 }
 
 extension LineReader {
+    /// have a chance to manipulate the input before the cursor
+    /// before calling updateCursor(...)
+    ///
+    /// return the changed (or the origin otherwise) string before cursor
+    private func updateBufferBeforeCursor(_ lineState: LineState) -> String {
+//        let origin = lineState.bufferBeforeCursor
+//        var ret: String?
+//        if let unfinished = self.unfinishedQuoteStartAt,
+//           unfinished < lineState.location {
+//            // display unfinished quote hint in this part
+//            ret = String(origin[..<unfinished]) + AnsiCode.termColor(33, false).escaped + String(origin[unfinished]) + AnsiCode.originTermColor.escaped + String(origin[origin.index(after: unfinished)...])
+//        }
+//
+//        return ret ?? origin
+        return self.updateBuffer(
+            in: lineState.buffer.startIndex..<lineState.location,
+            lineState: lineState)
+    }
+    
+    /// have a chance to manipulate the input after the cursor
+    /// before calling write to the output
+    private func updateBufferSinceCursor(_ lineState: LineState) -> String {
+//        let ret: String
+//        if let unfinished = self.unfinishedQuoteStartAt,
+//           unfinished >= lineState.location {
+//            let origin = lineState.buffer
+//            ret = String(origin[lineState.location..<unfinished]) + AnsiCode.termColor(33, false).escaped + String(origin[unfinished]) + AnsiCode.originTermColor.escaped + String(origin[origin.index(after: unfinished)...])
+//        } else {
+//            ret = lineState.bufferSinceCursor
+//        }
+//
+//        return ret
+        return self.updateBuffer(
+            in: lineState.location..<lineState.buffer.endIndex,
+            lineState: lineState)
+    }
+    
+    private func updateBuffer(in range: Range<String.Index>, lineState: LineState) -> String {
+        let ret: String
+        if let unfinished = self.unfinishedQuoteStartAt,
+           range.contains(unfinished),
+           let color = Env.getIntValue(for: .envUnfinishedQuoteHintColor) {
+            let buf = lineState.buffer
+            ret = String(buf[range.lowerBound..<unfinished]) + String(buf[unfinished]).term256Colorized(color) + String(buf[buf.index(after: unfinished)..<range.upperBound])
+        } else {
+            ret = String(lineState.buffer[range])
+        }
+        
+        return ret
+    }
+}
+
+extension LineReader {
     typealias LineStateTask = (LineState) -> Bool
     
     func refresh(_ lineState: LineState) throws {
+        self.updateUnfinishedQuoteIndex(for: lineState)
         try self.updateCursor(lineState: lineState) {
-            lineState.bufferBeforeCursor +
-                AnsiCode.eraseRight.escaped +
-                lineState.widthBeforeCursor.cursorBackwardAnsiCode
+            self.updateBufferBeforeCursor(lineState) +
+            AnsiCode.eraseRight.escaped +
+            lineState.widthBeforeCursor.cursorBackwardAnsiCode
         }
     }
     
@@ -211,10 +315,82 @@ extension LineReader {
         if let hint = possibleHint {
             buf += hint
         }
-        buf += lineState.bufferSinceCursor
+        buf += self.updateBufferSinceCursor(lineState)
         buf += (backward + lineState.widthSinceCursor).cursorBackwardAnsiCode
+        if let sl = self.sublineCallback?(lineState) {
+            // clean existing subline
+            buf += self.escCleanShownSubline()
+            // record the new number of subline rows
+            let numSublineRows = self.numberOfRows(of: sl)
+            // pre-take required lines first, may scroll
+            for _ in 0..<numSublineRows {
+                buf += AnsiCode.cursorDownMayScroll.escaped
+            }
+            for _ in 0..<numSublineRows {
+                buf += AnsiCode.cursorUpMayScroll.escaped
+            }
+            // display the subline
+            buf += (AnsiCode.cursorDownHome(1).escaped + sl).restoreCursorAfterwards()
+            // record the new number of sublines
+            self.numSublineRowsShown = numSublineRows
+        } else if self.numSublineRowsShown > 0 {
+            buf += self.escCleanShownSubline()
+        }
         if !buf.isEmpty {
             try self.output(string: buf)
+        }
+    }
+    
+    /// calculate number of rows for the given sublines string
+    /// this is different from number of lines in that one line
+    /// may be divided into several rows if it is long enough
+    private func numberOfRows(of sublines: String) -> Int {
+        let columns = Env.getIntValue(for: "COLUMNS")
+        let lines = sublines.split(omittingEmptySubsequences: false) {
+            $0.isNewline
+        }
+        var ret = 0
+        for line in lines {
+            ret += self.countRows(lineWidth: line.width,
+                                  columns: columns)
+        }
+        
+        return ret
+    }
+    
+    private func countRows(lineWidth: Int, columns: Int?) -> Int {
+        var ret = 1
+        if let cols = columns, lineWidth > cols {
+            ret = lineWidth / cols
+            if lineWidth % cols > 0 {
+                ret += 1
+            }
+        }
+        
+        return ret
+    }
+    
+    /// generate escape string for clean shown subline(s)
+    private func escCleanShownSubline() -> String {
+        var ret = ""
+        if self.numSublineRowsShown > 0 {
+            var clean = ""
+            for _ in 1...self.numSublineRowsShown {
+                clean += AnsiCode.cursorDown(1).escaped
+                clean += AnsiCode.eraseCursorRow.escaped
+            }
+            ret = clean.restoreCursorAfterwards()
+            self.numSublineRowsShown = 0
+        }
+        
+        return ret
+    }
+    
+    private func cleanShownSubline() {
+        do {
+            try self.output(string: self.escCleanShownSubline())
+        } catch {
+            NSLog("failed to clean shown subline: \(error)")
         }
     }
     
@@ -484,6 +660,9 @@ public extension LineReader {
                         $0.moveBackward(for: bsc.count)
                 }
                 self.keptLineState = lineState
+                // clean possible shown subline
+                self.cleanShownSubline()
+                // notify completion handling
                 throw LineReaderException.completion(c)
             } // ignore empty candidates
         } else {
@@ -518,7 +697,11 @@ public extension LineReader {
                         continue
                     }
                     if let rv = try handle(asciiChar: ascii, lineState: lineState) {
+                        // clean possible subline first
+                        self.cleanShownSubline()
+                        // add it to history
                         self.addToHistory(rv)
+                        // let the shell handle the input line
                         consumer(rv, nil)
                         lineState.reset()
                         return
@@ -601,6 +784,18 @@ extension LineReader {
         }
         
         return (ret, backward)
+    }
+}
+
+extension LineReader { // quotes
+    // MARK: - Quotes
+    private func updateUnfinishedQuoteIndex(for lineState: LineState) {
+        var index: String.Index?
+        if let result = try? CmdLineTokenizer(line: lineState.buffer).tokenize(),
+           let unfinished = result.unfinished {
+            index = unfinished.startAt
+        }
+        self.unfinishedQuoteStartAt = index
     }
 }
 
