@@ -156,13 +156,13 @@ public class LineReader {
     var completionCallback: CompletionCallback?
     var keptLineState: LineState?
     
-    // for unfinished quote hinting
-    private var unfinishedQuoteStartAt: String.Index?
-    
     // for subline
     typealias SublineCallback = (LineState) -> String?
     var sublineCallback: SublineCallback?
     private var numSublineRowsShown = 0
+    
+    // for hint items
+    private var hintItems = HintItems()
     
     init(input: FileDescriptor, output: FileDescriptor) {
         self.input = input
@@ -187,53 +187,101 @@ private extension Int {
     }
 }
 
+extension CmdLineTokenizer.Delimiter {
+    private var hintColorEnvName: String {
+        let ret: String
+        switch self {
+        case .pipe: ret = .envInvalidPipeDelimiter
+        case .command: ret = .envInvalidCommandSeparator
+        }
+        
+        return ret
+    }
+    
+    var hintColor: Int {
+        return self.hintColorEnvName.getEnvIntValue() ?? 0
+    }
+}
+
 extension LineReader {
+    struct HintItem {
+        let index: String.Index
+        let color: Int
+    }
+    
+    struct HintItems {
+        var beforeCursor: [HintItem] = []
+        var sinceCursor: [HintItem] = []
+    }
+    
+    private func updateHintItems(with lineState: LineState) {
+        var beforeCursor = [HintItem]()
+        var sinceCursor = [HintItem]()
+        if let result = try? CmdLineTokenizer(line: lineState.buffer).tokenize() {
+            let cursor = lineState.location
+            // hint items for invalid delimiters
+            for d in result.invalidDelimiters() {
+                let item = HintItem(index: d.index,
+                                    color: d.delimiter.hintColor)
+                if d.index < cursor {
+                    beforeCursor.append(item)
+                } else {
+                    sinceCursor.append(item)
+                }
+            }
+            // hint item for unfinished quote
+            // it is for sure after all the invalid delimiters
+            if let ufq = result.unfinished {
+                let index = ufq.startAt
+                let color = Env.getIntValue(for: .envUnfinishedQuoteHintColor) ?? 0
+                let item = HintItem(index: index, color: color)
+                if index < cursor {
+                    beforeCursor.append(item)
+                } else {
+                    sinceCursor.append(item)
+                }
+            }
+        }
+        
+        self.hintItems.beforeCursor = beforeCursor
+        self.hintItems.sinceCursor = sinceCursor
+    }
+    
     /// have a chance to manipulate the input before the cursor
     /// before calling updateCursor(...)
     ///
     /// return the changed (or the origin otherwise) string before cursor
     private func updateBufferBeforeCursor(_ lineState: LineState) -> String {
-//        let origin = lineState.bufferBeforeCursor
-//        var ret: String?
-//        if let unfinished = self.unfinishedQuoteStartAt,
-//           unfinished < lineState.location {
-//            // display unfinished quote hint in this part
-//            ret = String(origin[..<unfinished]) + AnsiCode.termColor(33, false).escaped + String(origin[unfinished]) + AnsiCode.originTermColor.escaped + String(origin[origin.index(after: unfinished)...])
-//        }
-//
-//        return ret ?? origin
-        return self.updateBuffer(
-            in: lineState.buffer.startIndex..<lineState.location,
-            lineState: lineState)
+        return self.updateBuffer(for: self.hintItems.beforeCursor,
+                                 in: lineState.buffer.startIndex..<lineState.location,
+                                 with: lineState)
     }
     
     /// have a chance to manipulate the input after the cursor
     /// before calling write to the output
     private func updateBufferSinceCursor(_ lineState: LineState) -> String {
-//        let ret: String
-//        if let unfinished = self.unfinishedQuoteStartAt,
-//           unfinished >= lineState.location {
-//            let origin = lineState.buffer
-//            ret = String(origin[lineState.location..<unfinished]) + AnsiCode.termColor(33, false).escaped + String(origin[unfinished]) + AnsiCode.originTermColor.escaped + String(origin[origin.index(after: unfinished)...])
-//        } else {
-//            ret = lineState.bufferSinceCursor
-//        }
-//
-//        return ret
-        return self.updateBuffer(
-            in: lineState.location..<lineState.buffer.endIndex,
-            lineState: lineState)
+        return self.updateBuffer(for: self.hintItems.sinceCursor,
+                                 in: lineState.location..<lineState.buffer.endIndex,
+                                 with: lineState)
     }
     
-    private func updateBuffer(in range: Range<String.Index>, lineState: LineState) -> String {
+    private func updateBuffer(for hintItems: [HintItem],
+                              in range: Range<String.Index>,
+                              with lineState: LineState) -> String {
         let ret: String
-        if let unfinished = self.unfinishedQuoteStartAt,
-           range.contains(unfinished),
-           let color = Env.getIntValue(for: .envUnfinishedQuoteHintColor) {
-            let buf = lineState.buffer
-            ret = String(buf[range.lowerBound..<unfinished]) + String(buf[unfinished]).term256Colorized(color) + String(buf[buf.index(after: unfinished)..<range.upperBound])
-        } else {
+        if hintItems.isEmpty {
             ret = String(lineState.buffer[range])
+        } else {
+            let buf = lineState.buffer
+            var new = ""
+            var startIdx = range.lowerBound
+            for item in hintItems {
+                let hintIdx = item.index
+                new += String(buf[startIdx..<hintIdx]) + String(buf[hintIdx]).term256Colorized(item.color)
+                startIdx = buf.index(after: hintIdx)
+            }
+            new += String(buf[startIdx..<range.upperBound])
+            ret = new
         }
         
         return ret
@@ -244,7 +292,7 @@ extension LineReader {
     typealias LineStateTask = (LineState) -> Bool
     
     func refresh(_ lineState: LineState) throws {
-        self.updateUnfinishedQuoteIndex(for: lineState)
+        self.updateHintItems(with: lineState)
         try self.updateCursor(lineState: lineState) {
             self.updateBufferBeforeCursor(lineState) +
             AnsiCode.eraseRight.escaped +
@@ -784,18 +832,6 @@ extension LineReader {
         }
         
         return (ret, backward)
-    }
-}
-
-extension LineReader { // quotes
-    // MARK: - Quotes
-    private func updateUnfinishedQuoteIndex(for lineState: LineState) {
-        var index: String.Index?
-        if let result = try? CmdLineTokenizer(line: lineState.buffer).tokenize(),
-           let unfinished = result.unfinished {
-            index = unfinished.startAt
-        }
-        self.unfinishedQuoteStartAt = index
     }
 }
 

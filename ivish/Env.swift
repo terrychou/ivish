@@ -13,6 +13,10 @@ extension String {
     /// env variable name for color value (0-255)
     /// for displaying the hint for unfinished quote
     static let envUnfinishedQuoteHintColor = "UNFINISHED_QUOTE_HINT_COLOR"
+    /// for displaying the hint for invalid pipe delimiter
+    static let envInvalidPipeDelimiter = "INVALID_PIPE_DELIMITER_HINT_COLOR"
+    /// for displaying the hint for invalid command separator
+    static let envInvalidCommandSeparator = "INVALID_COMMAND_SEPARATOR_HINT_COLOR"
 }
 
 extension String {
@@ -73,5 +77,7 @@ struct Env {
 extension Env {
     static let defaultEnvValues: [String: String] = [
         .envUnfinishedQuoteHintColor: "178",
+        .envInvalidPipeDelimiter: "178",
+        .envInvalidCommandSeparator: "178",
     ]
 }

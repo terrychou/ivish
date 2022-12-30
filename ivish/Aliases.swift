@@ -90,16 +90,34 @@ extension Aliases {
         return ret
     }
     
+    private func translateCmdline(_ line: String) -> String? {
+        var history = TransHistory()
+        let translated = self.translate(cmdline: line, history: &history)
+        
+        return history.isEmpty ? nil : translated
+    }
+    
     /// translate the given command line according to the pool
     ///
     /// `cmdline`: the command line to translate
     ///
     /// return the translated result, or `nil` if no alias found
     func translate(cmdline: String) -> String? {
-        var history = TransHistory()
-        let translated = self.translate(cmdline: cmdline, history: &history)
+        let result = try! CmdLineTokenizer(line: cmdline).tokenize()
+        var ret = ""
+        var didTranslate = false
+        result.enumerateSubcmdLines { line, delimiter, _ in
+            let translated: String
+            if let trans = self.translateCmdline(line) {
+                didTranslate = true
+                translated = trans
+            } else {
+                translated = line
+            }
+            ret += translated + (delimiter?.delimiter.str ?? "")
+        }
         
-        return history.isEmpty ? nil : translated
+        return didTranslate ? ret : nil
     }
 }
 

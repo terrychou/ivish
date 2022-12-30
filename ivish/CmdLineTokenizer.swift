@@ -15,7 +15,11 @@ final class CmdLineTokenizer {
     var rest = ""
     var accum: String?
     var escaping: Escaping?
-    var results: [String]?
+    var tokenStartAt: String.Index?
+    var tokenEndAt: String.Index?
+    var soFarDelimitedTokens = 0
+    var delimiters = [DelimiterInfo]()
+    var results: [Token]?
     var isSubescaping = false
     var unfinishedEscape: EscapeInfo?
 
@@ -99,7 +103,10 @@ extension CmdLineTokenizer {
 
     private func harvest() {
         guard let a = self.accum else { return }
-        self.results?.append(a)
+        let token = Token(startAt: self.tokenStartAt!,
+                          endAt: self.tokenEndAt!,
+                          content: a)
+        self.results?.append(token)
         self.accum = nil
     }
 
@@ -113,6 +120,7 @@ extension CmdLineTokenizer {
             var startEscaping = false
             let wasNotToken = self.accum == nil
             try self.handle(element: element,
+                            at: index,
                             startEscaping: &startEscaping)
             let isTokenStart = wasNotToken && self.accum != nil
             if startEscaping {
@@ -120,6 +128,11 @@ extension CmdLineTokenizer {
             }
             if isTokenStart {
                 lastTokenStartAt = index
+                self.tokenStartAt = index
+            }
+            // record possible token end index
+            if self.accum != nil {
+                self.tokenEndAt = index
             }
             if count > 0 && self.results!.count == count {
                 // collected enough
@@ -137,29 +150,6 @@ extension CmdLineTokenizer {
             self.harvest()
         }
         self.rest = String(self.line[(restStartAt ?? index)...])
-//        if self.escaping == nil {
-//            // do the possible last harvest
-//            self.harvest()
-//        }
-//        if let esc = self.escaping {
-//            // encounter unfinished token
-//            if count > 0 && self.results!.count == count {
-//                // collected enough, no exception thrown
-//                self.rest = self.accum ?? ""
-//            } else {
-//                throw ParseError.unfinished(esc.rawValue)
-//            }
-//        }
-//        self.rest = String(self.line[index...])
-//        if count > 0 && self.results!.count == count {
-//
-//        }
-//        if let esc = self.escaping {
-//            // unfinished escaping
-//            throw ParseError.unfinished(esc.rawValue)
-//        } else {
-//            self.harvest()
-//        }
     }
 
     private func prepareAccum() {
@@ -167,8 +157,21 @@ extension CmdLineTokenizer {
             self.accum = ""
         }
     }
+    
+    private func collectDelimiter(_ delimiter: Delimiter, at index: String.Index) {
+        // also do harvest
+        self.harvest()
+        // collect delimiter, do not treat delimiter as tokens
+        let upper = self.results?.count ?? 0
+        let info = DelimiterInfo(delimiter: delimiter,
+                                 index: index,
+                                 soFarTokensRange: self.soFarDelimitedTokens..<upper)
+        self.soFarDelimitedTokens = upper
+        self.delimiters.append(info)
+    }
 
     private func handle(element: Element,
+                        at index: String.Index,
                         startEscaping: inout Bool) throws {
         if let esc = self.escaping {
             // escaping
@@ -184,6 +187,8 @@ extension CmdLineTokenizer {
         } else if element.isWhitespace {
             // skip whitespace and harvest possible token
             self.harvest()
+        } else if let delimiter = Delimiter(rawValue: element) {
+            self.collectDelimiter(delimiter, at: index)
         } else {
             // accumulate others
             self.prepareAccum()
@@ -197,18 +202,11 @@ extension CmdLineTokenizer {
     }
     
     struct Result {
-        let tokens: [String]
+        let line: String
+        let tokens: [Token]
+        let delimiters: [DelimiterInfo]
         let rest: String
         let unfinished: EscapeInfo?
-        
-        func token(at index: Int) -> String? {
-            var ret: String?
-            if self.tokens.indices.contains(index) {
-                ret = self.tokens[index]
-            }
-            
-            return ret
-        }
     }
 
     /// tokenize the line provided in initialization
@@ -217,8 +215,156 @@ extension CmdLineTokenizer {
     func tokenize(count: Int=0) throws -> Result {
         try self.run(count: count)
         
-        return .init(tokens: self.results ?? [],
+        return .init(line: self.line,
+                     tokens: self.results ?? [],
+                     delimiters: self.delimiters,
                      rest: self.rest,
                      unfinished: self.unfinishedEscape)
+    }
+}
+
+extension CmdLineTokenizer {
+    struct Token {
+        let startAt: String.Index
+        let endAt: String.Index
+        let content: String
+    }
+    
+    enum Delimiter: Character {
+        case pipe = "|"    // pipe
+        case command = ";" // command separator
+        
+        var str: String {
+            return String(self.rawValue)
+        }
+    }
+    
+    struct DelimiterInfo {
+        let delimiter: Delimiter
+        let index: String.Index
+        let soFarTokensRange: Range<Int>
+        
+        var leftIsEmpty: Bool {
+            return self.soFarTokensRange.isEmpty
+        }
+    }
+}
+
+extension CmdLineTokenizer.Result {
+    func token(at index: Int) -> String? {
+        var ret: String?
+        if self.tokens.indices.contains(index) {
+            ret = self.tokens[index].content
+        }
+        
+        return ret
+    }
+    
+    typealias DelimiterInfo = CmdLineTokenizer.DelimiterInfo
+    typealias SubcmdLineEnumerator = (String, DelimiterInfo?, inout Bool) -> Void
+    func enumerateSubcmdLines(_ enumerator: SubcmdLineEnumerator) {
+        var stop = false
+        var startIndex = self.line.startIndex
+        for del in self.delimiters {
+            stop = false
+            let subcmdLine = String(self.line[startIndex..<del.index])
+            startIndex = self.line.index(after: del.index)
+            enumerator(subcmdLine, del, &stop)
+            if stop {
+                break
+            }
+        }
+        if !stop {
+            let lastSubcmdLine = String(self.line[startIndex...])
+            enumerator(lastSubcmdLine, nil, &stop)
+        }
+    }
+    
+    private func tokensRange(for delimiter: DelimiterInfo?) -> Range<Int> {
+        let range: Range<Int>
+        if let d = delimiter {
+            range = d.soFarTokensRange
+        } else {
+            var startIdx = 0
+            let endIdx = self.tokens.count
+            if let ld = self.delimiters.last {
+                startIdx = ld.soFarTokensRange.upperBound
+            }
+            range = startIdx..<endIdx
+        }
+        
+        return range
+    }
+    
+    /// pick the tokens delimited by the given `delimiter`
+    /// if `delimiter` is nil, it means the last part
+    typealias Token = CmdLineTokenizer.Token
+    private func tokens(for delimiter: DelimiterInfo?) -> [Token] {
+        return Array(self.tokens[self.tokensRange(for: delimiter)])
+    }
+    
+    /// validate existing delimiters
+    ///
+    /// return invalid ones
+    func invalidDelimiters() -> [DelimiterInfo] {
+        var ret = [DelimiterInfo]()
+        let count = self.delimiters.count
+        if count > 1 {
+            for idx in 0..<(count - 1) {
+                let current = self.delimiters[idx]
+                let next = self.delimiters[idx + 1]
+                if !self.validate(delimiter: current, next: next) {
+                    ret.append(current)
+                }
+            }
+        }
+        // handle the possible last one
+        if let ld = self.delimiters.last,
+           !self.validate(delimiter: ld, next: nil) {
+            ret.append(ld)
+        }
+        
+        return ret
+    }
+    
+    private typealias DelimiterValidator = (DelimiterInfo, DelimiterInfo?) -> Bool
+    private func validate(delimiter: DelimiterInfo, next: DelimiterInfo?) -> Bool {
+        let validator: DelimiterValidator
+        switch delimiter.delimiter {
+        case .pipe: validator = self.validatePipe(_:next:)
+        case .command: validator = self.validateCommandSeparator(_:next:)
+        }
+        
+        return validator(delimiter, next)
+    }
+    
+    private func validatePipe(_ delimiter: DelimiterInfo,
+                              next: DelimiterInfo?) -> Bool {
+        // a pipe is invalid if any of its sides is empty (no tokens)
+        var ret = false
+        if !delimiter.leftIsEmpty { // left is not empty
+            if let nd = next { // has next delimiter
+                if !nd.leftIsEmpty {
+                    // right is not empty
+                    ret = true
+                }
+            } else if !delimiter.soFarTokensRange.contains(self.tokens.count - 1) {
+                // this is the last delimiter, and right is not empty
+                ret = true
+            }
+        }
+        
+        return ret
+    }
+    
+    private func validateCommandSeparator(_ delimiter: DelimiterInfo,
+                                          next: DelimiterInfo?) -> Bool {
+        // a command separator is invalid if its left is empty
+        var ret = false
+        if !delimiter.leftIsEmpty {
+            ret = true
+        }
+        
+        return ret
     }
 }

@@ -569,7 +569,7 @@ extension Shell {
 
 extension Shell { // aliases
     private func cmdAlias(_ tokens: CmdTokens) throws {
-        try self.handleAliasArgs(Array(tokens.tokens[1...]))
+        try self.handleAliasArgs(tokens.tokens[1...].map { $0.content })
     }
     
     /// handle arguments given to `alias` command:
@@ -616,11 +616,11 @@ extension Shell { // aliases
     /// and all arguments after it will be ignored
     private func cmdUnalias(_ tokens: CmdTokens) throws {
         for token in tokens.tokens[1...] {
-            if token == "-a" {
+            if token.content == "-a" {
                 self.removeAllAliases()
                 break
-            } else if !self.aliases.remove(name: token) {
-                self.showError("unalias: \(token): not found")
+            } else if !self.aliases.remove(name: token.content) {
+                self.showError("unalias: \(token.content): not found")
             }
         }
     }
