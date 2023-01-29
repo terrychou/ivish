@@ -280,6 +280,32 @@ extension CmdLineTokenizer.Result {
         }
     }
     
+    /// enumerate sublines that are delimited by any of `delimiters`
+    typealias Delimiter = CmdLineTokenizer.Delimiter
+    /// delimited enumerator: (subline, delimiter info, stop enumerating)
+    typealias DelimitedEnumerator = (String, DelimiterInfo?, inout Bool) throws -> Void
+    func enumerateDelimited(delimiters: Set<Delimiter>,
+                            enumerator: DelimitedEnumerator) rethrows {
+        var stop = false
+        var startIndex = self.line.startIndex
+        for del in self.delimiters {
+            if !delimiters.contains(del.delimiter) {
+                continue
+            }
+            stop = false
+            let subLine = String(self.line[startIndex..<del.index])
+            startIndex = self.line.index(after: del.index)
+            try enumerator(subLine, del, &stop)
+            if stop {
+                break
+            }
+        }
+        if !stop {
+            let lastSubLine = String(self.line[startIndex...])
+            try enumerator(lastSubLine, nil, &stop)
+        }
+    }
+    
     private func tokensRange(for delimiter: DelimiterInfo?) -> Range<Int> {
         let range: Range<Int>
         if let d = delimiter {
@@ -299,7 +325,7 @@ extension CmdLineTokenizer.Result {
     /// pick the tokens delimited by the given `delimiter`
     /// if `delimiter` is nil, it means the last part
     typealias Token = CmdLineTokenizer.Token
-    private func tokens(for delimiter: DelimiterInfo?) -> [Token] {
+    func tokens(for delimiter: DelimiterInfo?) -> [Token] {
         return Array(self.tokens[self.tokensRange(for: delimiter)])
     }
     

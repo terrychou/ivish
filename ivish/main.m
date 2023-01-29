@@ -13,9 +13,13 @@
 
 int ivish_main(int argc, char *argv[])
 {
-    [[[Shell alloc] init] start];
+    int ret = 0;
+    if (argc > 1) {
+        ret = [[[Shell alloc] initWithArgc:argc argv:argv] runNonInteractively];
+    } else { // start interactive
+        [[[Shell alloc] init] start];
+    }
+    ios_exit(ret);
     
-    ios_exit(0);
-    
-    return 0;
+    return ret;
 }

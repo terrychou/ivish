@@ -19,24 +19,26 @@ internal enum ShellException: Error {
 }
 
 public class Shell: NSObject {
-    let input: Int32
-    let output: Int32
-    let error: Int32
+    let stdinStream = thread_stdin
+    let stdoutStream = thread_stdout
+    let stderrStream = thread_stderr
+    let inputFileNo = fileno(thread_stdin)
+    let outputFileNo = fileno(thread_stdout)
+    let errorFileNo = fileno(thread_stderr)
     var lnReader: LineReader?
     var cmdLnReader: LineReader?
     var promptText: String?
     var runningCmds = [String: CommandInfo]() // [uuid: info]
     var currentForegroundCmd: String? // uuid
-    lazy var queue = DispatchQueue(label: "com.terrychou.ivish.cmds",
-                                   qos: .userInitiated)
-    lazy var inputFileHandle = FileHandle(fileDescriptor: self.input,
-                                          closeOnDealloc: false)
-    let shellInputPipe = UnsafePipe()
-    let cmdInputPipe = UnsafePipe()
+    lazy var queue = DispatchQueue(
+        label: "com.terrychou.ivish.cmds." + UUID().uuidString,
+        qos: .userInitiated)
+    private var inputFileHandle: FileHandle?
+    var shellInputPipe: UnsafePipe?
+    var cmdInputPipe: UnsafePipe?
     var currentInputReceiver: Int32?
     var cmdPipeWriteFd: Int32?
     var inStream: UnsafeMutablePointer<FILE>?
-    let outStream = thread_stdout
     
     let config = Config()
     lazy var cmdDb = self.readDatabase()
@@ -48,31 +50,51 @@ public class Shell: NSObject {
     
     private lazy var aliases = Aliases()
     
+    typealias ARGV = UnsafeMutablePointer<UnsafeMutablePointer<CChar>>
+    var argc: Int32 = 0
+    var argv: ARGV?
+    private var isSubshell = false
+    private var nonInteractiveCmdline: String?
+    private var done = false
+    
     @objc public override init() {
         self.callbacks = ios_getContext()?.bindMemory(to: ivish_callbacks_t.self,
                                                       capacity: 1)
-        self.input = fileno(thread_stdin)
-        self.output = fileno(thread_stdout)
-        self.error = fileno(thread_stderr)
+        self.shellInputPipe = .init()
         if let sip = self.shellInputPipe {
             self.lnReader = LineReader(input: sip.input,
-                                       output: self.output)
+                                       output: self.outputFileNo)
         } else {
             self.lnReader = nil
         }
+        self.cmdInputPipe = .init()
         if let cip = self.cmdInputPipe {
             self.cmdLnReader = LineReader(input: cip.input,
-                                          output: self.output)
+                                          output: self.outputFileNo)
         } else {
             self.cmdLnReader = nil
         }
         super.init()
         self.initShell()
     }
+    
+    @objc public init(argc: Int32, argv: UnsafeMutablePointer<UnsafeMutablePointer<CChar>>) {
+        self.callbacks = ios_getContext()?.bindMemory(to: ivish_callbacks_t.self,
+                                                      capacity: 1)
+        self.isSubshell = true
+//        NSLog("ivish (subshell: \(self.isSubshell)) \(String(cString: argv[Int(argc) - 1])) thread stdin: \(self.inputFileNo), stdout: \(self.outputFileNo), stderr: \(self.errorFileNo)")
+        super.init()
+        self.argc = argc
+        self.argv = argv
+        // setup in stream
+        self.inStream = self.stdinStream
+    }
 }
 
 extension Shell {
     private func initShell() {
+        self.inputFileHandle = .init(fileDescriptor: self.inputFileNo,
+                                     closeOnDealloc: false)
         self.setupCellsCaculator()
         self.setupPipes()
         self.initConfig()
@@ -83,15 +105,19 @@ extension Shell {
     }
     
     private func cleanup() {
-        self.saveHistory()
-        self.lnReader = nil
-        self.cmdLnReader?.inputFileHandle?.readabilityHandler = nil
-        self.cmdLnReader = nil
-        self.inputFileHandle.readabilityHandler = nil
-        self.currentInputReceiver = nil
-        self.cleanCmdPipe()
-        self.shellInputPipe?.cleanup()
-        self.cmdInputPipe?.cleanup()
+        if self.isSubshell {
+            NSLog("ivish done subshell command: \(self.nonInteractiveCmdline ?? "")")
+        } else {
+            self.saveHistory()
+            self.lnReader = nil
+            self.cmdLnReader?.inputFileHandle?.readabilityHandler = nil
+            self.cmdLnReader = nil
+            self.inputFileHandle?.readabilityHandler = nil
+            self.currentInputReceiver = nil
+            self.cleanCmdPipe()
+            self.shellInputPipe?.cleanup()
+            self.cmdInputPipe?.cleanup()
+        }
     }
     
     private func initConfig() {
@@ -149,7 +175,7 @@ extension Shell {
 extension Shell {
     private func setupPipes() {
         self.currentInputReceiver = self.shellInputPipe?.output
-        self.inputFileHandle.readabilityHandler = {
+        self.inputFileHandle?.readabilityHandler = {
             let data = $0.availableData
             if data.count > 0 {
                 if let wfd = self.currentInputReceiver {
@@ -259,6 +285,17 @@ private extension String {
     func commandTokens(count: Int=0) -> CmdLineTokenizer.Result {
         return try! CmdLineTokenizer(line: self).tokenize(count: count)
     }
+    
+    /// quote `self` so that it will be treated by ios_system as
+    /// one token
+    var iosSystemAsOneToken: String {
+        return "\"" + self.replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    }
+    
+    /// restored from the above result
+    var iosSystemOneTokenRestored: String {
+        return self.replacingOccurrences(of: "\\\"", with: "\"")
+    }
 }
 
 private extension Array where Element == String {
@@ -298,6 +335,27 @@ private extension Array where Element == String {
         }
         
         return ret
+    }
+}
+
+extension Array where Element == String {
+    typealias CStringArray = UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
+    func withCStringArray(task: (Int32, CStringArray) throws -> Void) rethrows {
+        let pointer = UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
+            .allocate(capacity: self.count + 1)
+        pointer.initialize(repeating: nil, count: self.count + 1)
+        for (i, str) in self.enumerated() {
+            pointer[i] = strdup(str)
+        }
+        defer {
+            for i in 0...self.count {
+                if let p = pointer[i] {
+                    free(p)
+                }
+            }
+            pointer.deallocate()
+        }
+        try task(Int32(self.count), pointer)
     }
 }
 
@@ -382,13 +440,26 @@ extension Shell {
         ios_setWindowSize(width, height)
     }
     
-    private func runCommand(_ cmd: String) {
+    /// run command without affecting current session
+    private func runTokens(_ tokens: [String]) -> Int32 {
+        var ret: Int32 = 0
+        tokens.withCStringArray { argc, argv in
+            ret = ios_runCommand(argc,
+                                 argv,
+                                 self.stdinStream,
+                                 self.stdoutStream,
+                                 self.stderrStream)
+        }
+
+        return ret
+    }
+    
+    private func runCommand(_ cmd: String) -> Int32 {
+        var ret: Int32 = 0
         let uuid = UUID().uuidString
-        let pid = ios_fork()
         self.currentForegroundCmd = uuid
-        let in_stream = self.inStream
-        let out_stream = self.outStream
         
+        let pid = ios_fork()
         self.queue.sync {
             uuid.withCString {
                 let sid = $0
@@ -402,17 +473,30 @@ extension Shell {
                 ios_switchSession(sid)
                 ios_setTTYProvider(self.ttyProvider)
                 ios_setTTYRestorer(self.ttyRestorer)
-                ios_setStreams(in_stream, out_stream, out_stream)
+                ios_setStreams(self.inStream, self.stdoutStream, self.stderrStream)
                 self.setWindowSize()
-                ios_system(cmd)
+                ret = ios_system(cmd)
                 ios_closeSession(sid)
                 self.postCmd(cmd, uuid: uuid)
             }
         }
+        
+        return ret
     }
     
-    private func putString(_ str: String) {
-        str.write(to: self.output)
+    private func putString(_ str: String,
+                           to targetFileNo: Int32? = nil,
+                           force: Bool = false) {
+        var target = targetFileNo ?? self.outputFileNo
+        if !force &&
+            target != self.outputFileNo &&
+            (!self.isSubshell ||
+             (ios_isatty(self.outputFileNo) != 0 && ios_isatty(target) != 0)) {
+            // this is a trick to do best to output to stderr and stdout
+            // in order, by outputing stderr to stdout
+            target = self.outputFileNo
+        }
+        str.write(to: target)
     }
     
     private func shortenFilenames(_ cands: [String]) -> [String] {
@@ -444,43 +528,22 @@ extension Shell {
         if self.lnReader == nil || self.cmdLnReader == nil {
             return // failed to create necessary pipes
         }
-        done: while true {
+        while !self.done {
             do {
-                self.putString(self.prompt)
-                var line = try self.lnReader!.readline()
+                self.putString(self.prompt, to: self.errorFileNo, force: true)
+                let line = try self.lnReader!.readline()
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 self.putString("\n")
                 if line.isEmpty {
                     continue
                 }
-                let tokens = line.commandTokens()
-                if let unfinished = tokens.unfinished {
-                    self.showError("unfinished \(unfinished.escape.rawValue)")
-                    continue
-                }
-                if let translated = self.aliases.translate(cmdline: line) {
-                    line = translated
-                }
-                try self.handleNestingShell(tokens)
-                if try self.handleInternalCmd(tokens) {
-                    continue
-                } else {
-                    self.runCommand(line)
-                }
-            } catch let se as ShellException {
-                switch se {
-                case .exit:
-                    self.cleanup()
-                    break done
-                case let .error(msg):
-                    self.showError(msg)
-                }
+                try self.handleCmdline(line)
             } catch let lre as LineReaderException {
                 switch lre {
                 case .eof:
                     self.putString("^D".termColorized(36))
                     self.cleanup()
-                    break done
+                    self.done = true
                 case .interrupt:
                     // ^C start a new prompt
                     self.putString("^C\n".termColorized(36))
@@ -497,15 +560,123 @@ extension Shell {
 }
 
 extension Shell {
+    @objc public func runNonInteractively() -> Int32 {
+        var ret: Int32 = 0
+        let arguments = (0..<self.argc).map {
+            String(cString: self.argv![Int($0)])
+        }
+        if arguments.count > 2 && arguments[1] == "--cmdline" {
+            let cmdline = arguments[2].iosSystemOneTokenRestored
+            self.nonInteractiveCmdline = cmdline
+            ret = self.runSubcommand(cmdline, piped: false)
+        }
+        //TODO: handling for normal args
+        self.cleanup()
+        
+        return ret
+    }
+    
+    /// validate tokenized result
+    ///
+    /// the given tokenized result is invalid if any:
+    /// 1) it has unfinished quoting
+    /// 2) it has any invalid delimiter
+    ///
+    /// an error is thrown if invalid
+    private func validateTokenized(_ tokenized: CmdLineTokenizer.Result) throws {
+        if let unfinished = tokenized.unfinished {
+            throw ShellException.error("unfinished \(unfinished.escape.rawValue)")
+        }
+        let invalidDelimiters = tokenized.invalidDelimiters()
+        if !invalidDelimiters.isEmpty {
+            let info = invalidDelimiters.lazy.map { $0.delimiter.str }.joined(separator: " ")
+            throw ShellException.error("invalid delimiters \(info)")
+        }
+    }
+    
+    @discardableResult
+    private func runSubcommand(_ subcmd: String, piped: Bool) -> Int32 {
+        var ret: Int32 = 0
+        do {
+            if piped {
+                let _ = self.runCommand(subcmd)
+            } else {
+                let tokens = subcmd.commandTokens().tokens.map { $0.content }
+                try self.handleNestingShell(tokens)
+                if try !self.handleInternalCmd(tokens) {
+                    if self.isSubshell {
+                        ret = self.runTokens(tokens)
+                    } else {
+                        ret = self.runCommand(subcmd)
+                    }
+                    switch ret {
+                    case 127:
+                        throw ShellException.error(
+                            "\(tokens.first ?? ""): command not found"
+                        )
+                    default: break
+                    }
+                }
+            }
+        } catch let se as ShellException {
+            switch se {
+            case .exit:
+                self.cleanup()
+                self.done = true
+            case let .error(msg):
+                self.showError(msg)
+            }
+        } catch {
+            NSLog("ivish failed to run subcommand: \(subcmd): \(error)")
+        }
+        
+        return ret
+    }
+    
+    private func handleCmdline(_ line: String) throws {
+        var cmdline = line
+        // expand aliases first
+        if let expanded = self.aliases.translate(cmdline: cmdline) {
+            cmdline = expanded
+        }
+        let tokenized = cmdline.commandTokens()
+        // validate this line
+        try self.validateTokenized(tokenized)
+        // run subcommand by subcommand
+        var subcmd = ""
+        var piped = false
+        tokenized.enumerateDelimited(delimiters: [.pipe, .command]) { subline, delimiter, stop in
+            switch delimiter?.delimiter {
+            case .pipe?:
+                piped = true
+                subcmd += "\(shellName) --cmdline \(subline.iosSystemAsOneToken) | "
+            case .command?, nil:
+                if piped {
+                    subcmd += "\(shellName) --cmdline \(subline.iosSystemAsOneToken)"
+                } else {
+                    subcmd += subline
+                }
+                self.runSubcommand(subcmd, piped: piped)
+                subcmd = ""
+                piped = false
+                if self.done {
+                    stop = true
+                }
+            }
+        }
+    }
+}
+
+extension Shell {
     private func handleNestingShell(_ tokens: CmdTokens) throws {
-        if tokens.token(at: 0) == shellName {
+        if tokens.first == shellName {
             try self.nestShell(tokens)
         }
     }
     
     private func handleInternalCmd(_ tokens: CmdTokens) throws -> Bool {
         // return true if handled
-        guard let name = tokens.token(at: 0),
+        guard let name = tokens.first,
             let cmd = InternalCommand(rawValue: String(name))
             else { return false }
         let handled = true
@@ -527,8 +698,10 @@ extension Shell {
     
     private func showMsg(_ msg: String,
                          in color: Int,
-                         bold: Bool? = nil) {
-        let content = "\(shellName): \(msg)"
+                         bold: Bool? = nil,
+                         to targetFileNo: Int32,
+                         force: Bool = false) {
+        let content = "\(shellName): \(msg)\n"
         let colorized: String
         if let isBold = bold {
             // show in normal mode
@@ -537,16 +710,15 @@ extension Shell {
             // in 256 colors
             colorized = content.term256Colorized(color)
         }
-        self.putString(colorized)
-        self.putString("\n")
+        self.putString(colorized, to: targetFileNo, force: force)
     }
     
-    private func showError(_ msg: String) {
-        self.showMsg(msg, in: 31, bold: true)
+    private func showError(_ msg: String, force: Bool = false) {
+        self.showMsg(msg, in: 31, bold: true, to: self.errorFileNo, force: force)
     }
     
     private func showWarn(_ msg: String) {
-        self.showMsg(msg, in: 33, bold: false)
+        self.showMsg(msg, in: 33, bold: false, to: self.outputFileNo)
     }
     
     private func exitShell() throws {
@@ -569,7 +741,7 @@ extension Shell {
 
 extension Shell { // aliases
     private func cmdAlias(_ tokens: CmdTokens) throws {
-        try self.handleAliasArgs(tokens.tokens[1...].map { $0.content })
+        try self.handleAliasArgs(Array(tokens[1...]))
     }
     
     /// handle arguments given to `alias` command:
@@ -615,12 +787,12 @@ extension Shell { // aliases
     /// remove all existing aliases if option "-a" is given,
     /// and all arguments after it will be ignored
     private func cmdUnalias(_ tokens: CmdTokens) throws {
-        for token in tokens.tokens[1...] {
-            if token.content == "-a" {
+        for token in tokens[1...] {
+            if token == "-a" {
                 self.removeAllAliases()
                 break
-            } else if !self.aliases.remove(name: token.content) {
-                self.showError("unalias: \(token.content): not found")
+            } else if !self.aliases.remove(name: token) {
+                self.showError("unalias: \(token): not found")
             }
         }
     }
@@ -632,7 +804,7 @@ extension Shell { // aliases
     }
 }
 
-private typealias CmdTokens = CmdLineTokenizer.Result
+private typealias CmdTokens = [String]
 
 extension Shell {
     private func availableCommands(for pattern: String? = nil) -> [String] {

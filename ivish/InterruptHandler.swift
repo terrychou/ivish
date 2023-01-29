@@ -61,7 +61,7 @@ public class SignalAction {
     let handler: (Int32) -> Void
     
     init?(signal: Int32) {
-        var sa = UnsafeMutablePointer<sigaction>.allocate(capacity: 1)
+        let sa = UnsafeMutablePointer<sigaction>.allocate(capacity: 1)
         defer {
             sa.deinitialize(count: 1)
             sa.deallocate()
