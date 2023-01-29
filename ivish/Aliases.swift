@@ -119,6 +119,11 @@ extension Aliases {
         
         return didTranslate ? ret : nil
     }
+    
+    /// import aliases from another aliases pool
+    func `import`(from aliases: Aliases) {
+        self.pool.merge(aliases.pool, uniquingKeysWith: { $1 })
+    }
 }
 
 private extension String {

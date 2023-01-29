@@ -18,6 +18,11 @@ internal enum ShellException: Error {
     case error(String)
 }
 
+struct ParentShellInfo {
+    let parentShell: Shell?
+    let callbacks: UnsafeMutablePointer<ivish_callbacks_t>?
+}
+
 public class Shell: NSObject {
     let stdinStream = thread_stdin
     let stdoutStream = thread_stdout
@@ -56,6 +61,7 @@ public class Shell: NSObject {
     private var isSubshell = false
     private var subshellCmdline: String?
     private var done = false
+    private var parentShellInfo: UnsafeMutablePointer<ParentShellInfo>?
     
     @objc public override init() {
         self.callbacks = ios_getContext()?.bindMemory(to: ivish_callbacks_t.self,
@@ -79,15 +85,15 @@ public class Shell: NSObject {
     }
     
     @objc public init(argc: Int32, argv: UnsafeMutablePointer<UnsafeMutablePointer<CChar>>) {
-        self.callbacks = ios_getContext()?.bindMemory(to: ivish_callbacks_t.self,
-                                                      capacity: 1)
+        self.parentShellInfo = ios_getContext()?.bindMemory(to: ParentShellInfo.self,
+                                                            capacity: 1)
+        self.callbacks = self.parentShellInfo?.pointee.callbacks
         self.isSubshell = true
 //        NSLog("ivish (subshell: \(self.isSubshell)) \(String(cString: argv[Int(argc) - 1])) thread stdin: \(self.inputFileNo), stdout: \(self.outputFileNo), stderr: \(self.errorFileNo)")
         super.init()
         self.argc = argc
         self.argv = argv
-        // setup in stream
-        self.inStream = self.stdinStream
+        self.initSubshell()
     }
 }
 
@@ -102,6 +108,19 @@ extension Shell {
         self.setupCompleter()
         self.setupLineReaderCallbacks()
         self.loadHistory()
+    }
+    
+    private var parentShell: Shell? {
+        return self.parentShellInfo?.pointee.parentShell
+    }
+    
+    private func initSubshell() {
+        // setup in stream
+        self.inStream = self.stdinStream
+        // setup aliases
+        if let ps = self.parentShell {
+            self.aliases.import(from: ps.aliases)
+        }
     }
     
     private func cleanup() {
@@ -439,6 +458,10 @@ extension Shell {
                             pid: pid,
                             sid: ios_sessionId(sid))
                 ios_switchSession(sid)
+                // setup parent shell context
+                var psi = ParentShellInfo(parentShell: self,
+                                          callbacks: self.callbacks)
+                ios_setContext(&psi)
                 ios_setTTYProvider(self.ttyProvider)
                 ios_setTTYRestorer(self.ttyRestorer)
                 ios_setStreams(self.inStream, self.stdoutStream, self.stderrStream)
@@ -607,11 +630,14 @@ extension Shell {
     /// 1. if it is an internal command, wrap it in a subshell
     /// 2. if it does not exit, wrap it in a subshell so that it
     ///    could report an error
-    /// 3. otherwise, return it intact
+    /// 3. if it is "ivish", wrap it in a subshell to report error
+    /// 4. otherwise, return it intact
     private func pipedSubline(_ subline: String) -> String {
         var ret = subline
         if let command = subline.commandTokens(count: 1).token(at: 0) {
-            if InternalCommand.hasCommand(command) || !self.availableCommands().contains(command) {
+            if command == shellName ||
+                InternalCommand.hasCommand(command) ||
+                !self.availableCommands().contains(command) {
                 ret = shellName + " " + subline
             }
         }
@@ -711,9 +737,14 @@ extension Shell {
         throw ShellException.exit
     }
     
+    func currentHistoryList() -> String? {
+        return self.lnReader?.currentHistoryList()
+    }
+    
     private func shellHistory(_ tokens: CmdTokens) {
-        let list = self.lnReader!.currentHistoryList()
-        self.putString(list)
+        if let list = self.currentHistoryList() ?? self.parentShell?.currentHistoryList() {
+            self.putString(list)
+        }
     }
     
     private func nestShell(_ tokens: CmdTokens) throws {
