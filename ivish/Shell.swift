@@ -54,7 +54,7 @@ public class Shell: NSObject {
     var argc: Int32 = 0
     var argv: ARGV?
     private var isSubshell = false
-    private var nonInteractiveCmdline: String?
+    private var subshellCmdline: String?
     private var done = false
     
     @objc public override init() {
@@ -106,7 +106,10 @@ extension Shell {
     
     private func cleanup() {
         if self.isSubshell {
-            NSLog("ivish done subshell command: \(self.nonInteractiveCmdline ?? "")")
+            if let cmdline = self.subshellCmdline {
+                NSLog("ivish done subshell command: \(cmdline)")
+                self.subshellCmdline = nil
+            }
         } else {
             self.saveHistory()
             self.lnReader = nil
@@ -338,27 +341,6 @@ private extension Array where Element == String {
     }
 }
 
-extension Array where Element == String {
-    typealias CStringArray = UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
-    func withCStringArray(task: (Int32, CStringArray) throws -> Void) rethrows {
-        let pointer = UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
-            .allocate(capacity: self.count + 1)
-        pointer.initialize(repeating: nil, count: self.count + 1)
-        for (i, str) in self.enumerated() {
-            pointer[i] = strdup(str)
-        }
-        defer {
-            for i in 0...self.count {
-                if let p = pointer[i] {
-                    free(p)
-                }
-            }
-            pointer.deallocate()
-        }
-        try task(Int32(self.count), pointer)
-    }
-}
-
 extension Shell {
     var prompt: String {
         return self.promptText ?? defaultPrompt
@@ -438,20 +420,6 @@ extension Shell {
         let width = atoi(getenv("COLUMNS"))
         let height = atoi(getenv("LINES"))
         ios_setWindowSize(width, height)
-    }
-    
-    /// run command without affecting current session
-    private func runTokens(_ tokens: [String]) -> Int32 {
-        var ret: Int32 = 0
-        tokens.withCStringArray { argc, argv in
-            ret = ios_runCommand(argc,
-                                 argv,
-                                 self.stdinStream,
-                                 self.stdoutStream,
-                                 self.stderrStream)
-        }
-
-        return ret
     }
     
     private func runCommand(_ cmd: String) -> Int32 {
@@ -560,14 +528,14 @@ extension Shell {
 }
 
 extension Shell {
-    @objc public func runNonInteractively() -> Int32 {
+    @objc public func runAsSubshell() -> Int32 {
         var ret: Int32 = 0
         let arguments = (0..<self.argc).map {
             String(cString: self.argv![Int($0)])
         }
-        if arguments.count > 2 && arguments[1] == "--cmdline" {
-            let cmdline = arguments[2].iosSystemOneTokenRestored
-            self.nonInteractiveCmdline = cmdline
+        if arguments.count > 1 {
+            let cmdline = arguments[1...].joined(separator: " ")
+            self.subshellCmdline = cmdline
             ret = self.runSubcommand(cmdline, piped: false)
         }
         //TODO: handling for normal args
@@ -605,7 +573,9 @@ extension Shell {
                 try self.handleNestingShell(tokens)
                 if try !self.handleInternalCmd(tokens) {
                     if self.isSubshell {
-                        ret = self.runTokens(tokens)
+                        // subshell only handle internal commands
+                        // or command-not-found
+                        ret = 127
                     } else {
                         ret = self.runCommand(subcmd)
                     }
@@ -633,6 +603,22 @@ extension Shell {
         return ret
     }
     
+    /// prepare piped `subline`:
+    /// 1. if it is an internal command, wrap it in a subshell
+    /// 2. if it does not exit, wrap it in a subshell so that it
+    ///    could report an error
+    /// 3. otherwise, return it intact
+    private func pipedSubline(_ subline: String) -> String {
+        var ret = subline
+        if let command = subline.commandTokens(count: 1).token(at: 0) {
+            if InternalCommand.hasCommand(command) || !self.availableCommands().contains(command) {
+                ret = shellName + " " + subline
+            }
+        }
+        
+        return ret
+    }
+    
     private func handleCmdline(_ line: String) throws {
         var cmdline = line
         // expand aliases first
@@ -649,10 +635,10 @@ extension Shell {
             switch delimiter?.delimiter {
             case .pipe?:
                 piped = true
-                subcmd += "\(shellName) --cmdline \(subline.iosSystemAsOneToken) | "
+                subcmd += self.pipedSubline(subline) + " | "
             case .command?, nil:
                 if piped {
-                    subcmd += "\(shellName) --cmdline \(subline.iosSystemAsOneToken)"
+                    subcmd += self.pipedSubline(subline)
                 } else {
                     subcmd += subline
                 }
@@ -908,6 +894,10 @@ internal enum InternalCommand: String, CaseIterable {
     static func commands(for pattern: String) -> [String] {
         return pattern.isEmpty ? self.allCommands :
             self.allCommands.filter { $0.hasPrefix(pattern) }
+    }
+    
+    static func hasCommand(_ command: String) -> Bool {
+        return Self(rawValue: command) != nil
     }
 }
 

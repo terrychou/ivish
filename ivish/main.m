@@ -15,7 +15,7 @@ int ivish_main(int argc, char *argv[])
 {
     int ret = 0;
     if (argc > 1) {
-        ret = [[[Shell alloc] initWithArgc:argc argv:argv] runNonInteractively];
+        ret = [[[Shell alloc] initWithArgc:argc argv:argv] runAsSubshell];
     } else { // start interactive
         [[[Shell alloc] init] start];
     }
