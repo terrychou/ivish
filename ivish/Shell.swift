@@ -645,15 +645,7 @@ extension Shell {
         return ret
     }
     
-    private func handleCmdline(_ line: String) throws {
-        var cmdline = line
-        // expand aliases first
-        if let expanded = self.aliases.translate(cmdline: cmdline) {
-            cmdline = expanded
-        }
-        let tokenized = cmdline.commandTokens()
-        // validate this line
-        try self.validateTokenized(tokenized)
+    private func handleTokenized(_ tokenized: CmdLineTokenizer.Result) {
         // run subcommand by subcommand
         var subcmd = ""
         var piped = false
@@ -676,6 +668,28 @@ extension Shell {
                 }
             }
         }
+    }
+    
+    private func handleCmdline(_ line: String) throws {
+        var cmdline = line
+        // expand aliases first
+        if let expanded = self.aliases.translate(cmdline: cmdline) {
+            cmdline = expanded
+        }
+        let tokenized = cmdline.commandTokens()
+        do {
+            // validate this line
+            try self.validateTokenized(tokenized)
+            // run valid tokenized
+            self.handleTokenized(tokenized)
+        } catch let se as ShellException {
+            if case let .error(msg) = se {
+                self.showError(msg)
+            }
+        } catch {
+            NSLog("ivish failed to validate cmdline: \(cmdline): \(error)")
+        }
+        
     }
 }
 
