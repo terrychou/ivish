@@ -19,4 +19,9 @@ typedef struct {
     NSArray<NSString *>* _Nonnull (* _Nullable expand_filenames)(NSString * _Nonnull);
 } ivish_callbacks_t;
 
+typedef struct {
+    ivish_callbacks_t * _Nullable callbacks;
+    const void * _Nullable parent;
+} ivish_context_t;
+
 #endif /* ivishcallbacks_h */

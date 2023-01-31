@@ -14,10 +14,11 @@
 int ivish_main(int argc, char *argv[])
 {
     int ret = 0;
+    Shell *shell = [[Shell alloc] init];
     if (argc > 1) {
-        ret = [[[Shell alloc] initWithArgc:argc argv:argv] runAsSubshell];
+        ret = [shell runWithArgc:argc argv:argv];
     } else { // start interactive
-        [[[Shell alloc] init] start];
+        ret = [shell start];
     }
     ios_exit(ret);
     

@@ -18,11 +18,6 @@ internal enum ShellException: Error {
     case error(String)
 }
 
-struct ParentShellInfo {
-    let parentShell: Shell?
-    let callbacks: UnsafeMutablePointer<ivish_callbacks_t>?
-}
-
 public class Shell: NSObject {
     let stdinStream = thread_stdin
     let stdoutStream = thread_stdout
@@ -52,20 +47,43 @@ public class Shell: NSObject {
     var completer: Completer!
     
     let callbacks: UnsafeMutablePointer<ivish_callbacks_t>?
+    weak var parentShell: Shell?
     
     private lazy var aliases = Aliases()
     
-    typealias ARGV = UnsafeMutablePointer<UnsafeMutablePointer<CChar>>
-    var argc: Int32 = 0
-    var argv: ARGV?
-    private var isSubshell = false
+    private let isSubshell: Bool
     private var subshellCmdline: String?
     private var done = false
-    private var parentShellInfo: UnsafeMutablePointer<ParentShellInfo>?
+    
+    private var lastExitCode: Int32 = 0
     
     @objc public override init() {
-        self.callbacks = ios_getContext()?.bindMemory(to: ivish_callbacks_t.self,
-                                                      capacity: 1)
+        let context = ios_getContext()?.bindMemory(to: ivish_context_t.self, capacity: 1)
+        self.callbacks = context?.pointee.callbacks
+        self.parentShell = context?.pointee.parent?.bindMemory(to: Shell.self, capacity: 1).pointee
+        self.isSubshell = self.parentShell != nil
+        super.init()
+        if self.isSubshell {
+            self.initSubshell()
+        } else {
+            self.initShell()
+        }
+    }
+}
+
+extension Shell {
+    private func initShell() {
+        self.setupLineReaders()
+        self.setupCellsCaculator()
+        self.setupPipes()
+        self.initConfig()
+        self.setupInStream()
+        self.setupCompleter()
+        self.setupLineReaderCallbacks()
+        self.loadHistory()
+    }
+    
+    private func setupLineReaders() {
         self.shellInputPipe = .init()
         if let sip = self.shellInputPipe {
             self.lnReader = LineReader(input: sip.input,
@@ -80,38 +98,6 @@ public class Shell: NSObject {
         } else {
             self.cmdLnReader = nil
         }
-        super.init()
-        self.initShell()
-    }
-    
-    @objc public init(argc: Int32, argv: UnsafeMutablePointer<UnsafeMutablePointer<CChar>>) {
-        self.parentShellInfo = ios_getContext()?.bindMemory(to: ParentShellInfo.self,
-                                                            capacity: 1)
-        self.callbacks = self.parentShellInfo?.pointee.callbacks
-        self.isSubshell = true
-//        NSLog("ivish (subshell: \(self.isSubshell)) \(String(cString: argv[Int(argc) - 1])) thread stdin: \(self.inputFileNo), stdout: \(self.outputFileNo), stderr: \(self.errorFileNo)")
-        super.init()
-        self.argc = argc
-        self.argv = argv
-        self.initSubshell()
-    }
-}
-
-extension Shell {
-    private func initShell() {
-        self.inputFileHandle = .init(fileDescriptor: self.inputFileNo,
-                                     closeOnDealloc: false)
-        self.setupCellsCaculator()
-        self.setupPipes()
-        self.initConfig()
-        self.setupInStream()
-        self.setupCompleter()
-        self.setupLineReaderCallbacks()
-        self.loadHistory()
-    }
-    
-    private var parentShell: Shell? {
-        return self.parentShellInfo?.pointee.parentShell
     }
     
     private func initSubshell() {
@@ -196,6 +182,8 @@ extension Shell {
 
 extension Shell {
     private func setupPipes() {
+        self.inputFileHandle = .init(fileDescriptor: self.inputFileNo,
+                                     closeOnDealloc: false)
         self.currentInputReceiver = self.shellInputPipe?.output
         self.inputFileHandle?.readabilityHandler = {
             let data = $0.availableData
@@ -459,16 +447,19 @@ extension Shell {
                             sid: ios_sessionId(sid))
                 ios_switchSession(sid)
                 // setup parent shell context
-                var psi = ParentShellInfo(parentShell: self,
-                                          callbacks: self.callbacks)
-                ios_setContext(&psi)
-                ios_setTTYProvider(self.ttyProvider)
-                ios_setTTYRestorer(self.ttyRestorer)
-                ios_setStreams(self.inStream, self.stdoutStream, self.stderrStream)
-                self.setWindowSize()
-                ret = ios_system(cmd)
-                ios_closeSession(sid)
-                self.postCmd(cmd, uuid: uuid)
+                var mself = self
+                withUnsafeMutablePointer(to: &mself) {
+                    var psi = ivish_context_t(callbacks: self.callbacks,
+                                            parent: $0)
+                    ios_setContext(&psi)
+                    ios_setTTYProvider(self.ttyProvider)
+                    ios_setTTYRestorer(self.ttyRestorer)
+                    ios_setStreams(self.inStream, self.stdoutStream, self.stderrStream)
+                    self.setWindowSize()
+                    ret = ios_system(cmd)
+                    ios_closeSession(sid)
+                    self.postCmd(cmd, uuid: uuid)
+                }
             }
         }
         
@@ -515,9 +506,9 @@ extension Shell {
         self.putString("\n")
     }
     
-    @objc public func start() {
+    @objc public func start() -> Int32 {
         if self.lnReader == nil || self.cmdLnReader == nil {
-            return // failed to create necessary pipes
+            return 1// failed to create necessary pipes
         }
         while !self.done {
             do {
@@ -528,7 +519,7 @@ extension Shell {
                 if line.isEmpty {
                     continue
                 }
-                try self.handleCmdline(line)
+                self.lastExitCode = self.handleCmdline(line)
             } catch let lre as LineReaderException {
                 switch lre {
                 case .eof:
@@ -547,21 +538,26 @@ extension Shell {
                 NSLog("failed to read shell input: \(error.localizedDescription)")
             }
         }
+        
+        return self.lastExitCode
     }
 }
 
 extension Shell {
-    @objc public func runAsSubshell() -> Int32 {
+    @objc public func run(argc: Int32, argv: UnsafeMutablePointer<UnsafeMutablePointer<CChar>>) -> Int32 {
         var ret: Int32 = 0
-        let arguments = (0..<self.argc).map {
-            String(cString: self.argv![Int($0)])
+        let arguments = (0..<argc).map {
+            String(cString: argv[Int($0)])
         }
         if arguments.count > 1 {
-            let cmdline = arguments[1...].joined(separator: " ")
-            self.subshellCmdline = cmdline
-            ret = self.runSubcommand(cmdline, piped: false)
+            if self.isSubshell {
+                let cmdline = arguments[1...].joined(separator: " ")
+                self.subshellCmdline = cmdline
+                ret = self.runSubcommand(cmdline, piped: false)
+            } else {
+                NSLog("ivish ignore non-subshell with arguments")
+            }
         }
-        //TODO: handling for normal args
         self.cleanup()
         
         return ret
@@ -645,7 +641,24 @@ extension Shell {
         return ret
     }
     
-    private func handleTokenized(_ tokenized: CmdLineTokenizer.Result) {
+    /// report if command in `subline` is not found
+    ///
+    /// return true if reported
+    private func reportNotFoundCommand(_ subline: String) -> Bool {
+        var reported = false
+        if let command = subline.commandTokens(count: 1).token(at: 0) {
+            if !InternalCommand.hasCommand(command) &&
+                !self.availableCommands().contains(command) {
+                self.showError("\(command): command not found")
+                reported = true
+            }
+        }
+        
+        return reported
+    }
+    
+    private func handleTokenized(_ tokenized: CmdLineTokenizer.Result) -> Int32 {
+        var ret: Int32 = 0
         // run subcommand by subcommand
         var subcmd = ""
         var piped = false
@@ -660,7 +673,11 @@ extension Shell {
                 } else {
                     subcmd += subline
                 }
-                self.runSubcommand(subcmd, piped: piped)
+                if !piped && self.reportNotFoundCommand(subline) {
+                    ret = 127
+                } else {
+                    ret = self.runSubcommand(subcmd, piped: piped)
+                }
                 subcmd = ""
                 piped = false
                 if self.done {
@@ -668,9 +685,12 @@ extension Shell {
                 }
             }
         }
+        
+        return ret
     }
     
-    private func handleCmdline(_ line: String) throws {
+    private func handleCmdline(_ line: String) -> Int32 {
+        var ret: Int32 = 1
         var cmdline = line
         // expand aliases first
         if let expanded = self.aliases.translate(cmdline: cmdline) {
@@ -681,7 +701,7 @@ extension Shell {
             // validate this line
             try self.validateTokenized(tokenized)
             // run valid tokenized
-            self.handleTokenized(tokenized)
+            ret = self.handleTokenized(tokenized)
         } catch let se as ShellException {
             if case let .error(msg) = se {
                 self.showError(msg)
@@ -690,6 +710,7 @@ extension Shell {
             NSLog("ivish failed to validate cmdline: \(cmdline): \(error)")
         }
         
+        return ret
     }
 }
 
