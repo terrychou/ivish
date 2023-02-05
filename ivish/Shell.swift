@@ -61,6 +61,8 @@ public class Shell: NSObject {
     typealias CommandRunner = (String, UnsafeRawPointer?) -> Int32
     private var commandRunner: CommandRunner?
     
+    var startFromTerminal = true
+    
     @objc public override init() {
         let context = ios_getContext()?.bindMemory(to: ivish_context_t.self, capacity: 1)
         self.callbacks = context?.pointee.callbacks
@@ -779,6 +781,10 @@ extension Shell {
         return handled
     }
     
+    private var hasTerminal: Bool {
+        return self.parentShell?.startFromTerminal ?? self.startFromTerminal
+    }
+    
     private func showMsg(_ msg: String,
                          in color: Int,
                          bold: Bool? = nil,
@@ -786,7 +792,9 @@ extension Shell {
                          force: Bool = false) {
         let content = "\(shellName): \(msg)\n"
         let colorized: String
-        if let isBold = bold {
+        if !self.hasTerminal {
+            colorized = content
+        } else if let isBold = bold {
             // show in normal mode
             colorized = content.termColorized(color, bold: isBold)
         } else {
@@ -1041,7 +1049,7 @@ extension Shell {
                               aliases: Self.rootAliases,
                               callbacks: callbacks,
                               runner: runner)
-            
+            shell.startFromTerminal = false
             ret = shell.runAsRootCmd(cmd)
         }
         
