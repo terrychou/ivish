@@ -22,9 +22,9 @@ public class Shell: NSObject {
     let stdinStream = thread_stdin
     let stdoutStream = thread_stdout
     let stderrStream = thread_stderr
-    let inputFileNo = fileno(thread_stdin)
-    let outputFileNo = fileno(thread_stdout)
-    let errorFileNo = fileno(thread_stderr)
+    let inputFileNo = thread_stdin.map { fileno($0) } ?? -1
+    var outputFileNo = thread_stdout.map { fileno($0) } ?? -1
+    var errorFileNo = thread_stderr.map { fileno($0) } ?? -1
     var lnReader: LineReader?
     var cmdLnReader: LineReader?
     var promptText: String?
@@ -57,6 +57,10 @@ public class Shell: NSObject {
     
     private var lastExitCode: Int32 = 0
     
+    private var isRootShell = false
+    typealias CommandRunner = (String, UnsafeRawPointer?) -> Int32
+    private var commandRunner: CommandRunner?
+    
     @objc public override init() {
         let context = ios_getContext()?.bindMemory(to: ivish_context_t.self, capacity: 1)
         self.callbacks = context?.pointee.callbacks
@@ -68,6 +72,24 @@ public class Shell: NSObject {
         } else {
             self.initShell()
         }
+    }
+    
+    /// special initializer for root shell handling command
+    /// translation for shell commands outside an actual shell
+    init(stdoutFileNo: Int32,
+         stderrFileNo: Int32,
+         aliases: Aliases,
+         callbacks: UnsafeMutableRawPointer?,
+         runner: @escaping CommandRunner) {
+        self.callbacks = callbacks?.bindMemory(to: ivish_callbacks_t.self, capacity: 1)
+        self.parentShell = nil
+        self.isSubshell = false
+        super.init()
+        self.outputFileNo = stdoutFileNo
+        self.errorFileNo = stderrFileNo
+        self.aliases = aliases
+        self.isRootShell = true
+        self.commandRunner = runner
     }
 }
 
@@ -110,6 +132,7 @@ extension Shell {
     }
     
     private func cleanup() {
+        guard !self.isRootShell else { return }
         if self.isSubshell {
             if let cmdline = self.subshellCmdline {
                 NSLog("ivish done subshell command: \(cmdline)")
@@ -581,12 +604,25 @@ extension Shell {
         }
     }
     
+    private func handleSubcommand(_ subcmd: String) -> Int32 {
+        let ret: Int32
+        if let runner = self.commandRunner {
+            var mself = self
+//            NSLog("ivish root subcommand: \(subcmd)")
+            ret = runner(subcmd, &mself)
+        } else {
+            ret = self.runCommand(subcmd)
+        }
+        
+        return ret
+    }
+    
     @discardableResult
     private func runSubcommand(_ subcmd: String, piped: Bool) -> Int32 {
         var ret: Int32 = 0
         do {
             if piped {
-                let _ = self.runCommand(subcmd)
+                ret = self.handleSubcommand(subcmd)
             } else {
                 let tokens = subcmd.commandTokens().tokens.map { $0.content }
                 try self.handleNestingShell(tokens)
@@ -596,7 +632,7 @@ extension Shell {
                         // or command-not-found
                         ret = 127
                     } else {
-                        ret = self.runCommand(subcmd)
+                        ret = self.handleSubcommand(subcmd)
                     }
                     switch ret {
                     case 127:
@@ -986,4 +1022,33 @@ extension CharacterSet {
         Self.shellXQuote.union(
             Self.shellExpansion.union(
                 Self.shellPathSeparator)))
+}
+
+extension Shell {
+    private static let rootAliases = Aliases()
+    
+    @objc public class func runRootCommand(_ cmd: String,
+                                           stdoutFileNo: Int32,
+                                           stderrFileNo: Int32,
+                                           callbacks: UnsafeMutableRawPointer?,
+                                           runner: @escaping (String, UnsafeRawPointer?) -> Int32) -> Int32 {
+        let ret: Int32
+        if cmd == shellName {
+            ret = runner(cmd, nil)
+        } else {
+            let shell = Shell(stdoutFileNo: stdoutFileNo,
+                              stderrFileNo: stderrFileNo,
+                              aliases: Self.rootAliases,
+                              callbacks: callbacks,
+                              runner: runner)
+            
+            ret = shell.runAsRootCmd(cmd)
+        }
+        
+        return ret
+    }
+    
+    func runAsRootCmd(_ cmdline: String) -> Int32 {
+         return self.handleCmdline(cmdline)
+    }
 }

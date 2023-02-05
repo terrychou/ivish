@@ -24,3 +24,12 @@ int ivish_main(int argc, char *argv[])
     
     return ret;
 }
+
+int ivish_run_as_root_cmd(NSString *cmd, int stdoutFileNo, int stderrFileNo, void *callbacks, int (^runner)(NSString *, const void *))
+{
+    return [Shell runRootCommand:cmd
+                    stdoutFileNo:stdoutFileNo
+                    stderrFileNo:stderrFileNo
+                       callbacks:callbacks
+                          runner:runner];
+}
