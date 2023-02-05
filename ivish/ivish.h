@@ -17,4 +17,4 @@ FOUNDATION_EXPORT const unsigned char ivishVersionString[];
 
 // In this header, you should import all the public headers of your framework using statements like #import <ivish/PublicHeader.h>
 
-int ivish_run_as_root_cmd(NSString *cmd, int stdoutFileNo, int stderrFileNo, void *callbacks, int (^runner)(NSString *, const void *));
+int ivish_run_as_root_cmd(NSString *cmd, FILE *in_file, FILE *out_file, FILE *err_file, void *callbacks, int (^runner)(NSString *, const void *));

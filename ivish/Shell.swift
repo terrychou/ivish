@@ -300,6 +300,18 @@ extension Shell {
     }
 }
 
+extension String {
+    func trimmingFirst(while predict: (Character) throws -> Bool) rethrows -> String {
+        var ret = self
+        if let idx = try self.firstIndex(where: { try !predict($0) }),
+           idx != self.startIndex {
+            ret = String(self[idx...])
+        }
+        
+        return ret
+    }
+}
+
 private extension String {
     func write(to fileDescriptor: FileDescriptor) {
         Darwin.write(fileDescriptor, self, self.utf8.count)
@@ -608,12 +620,12 @@ extension Shell {
     
     private func handleSubcommand(_ subcmd: String) -> Int32 {
         let ret: Int32
+        let cmd = subcmd.trimmingFirst(while: { $0.isWhitespace })
         if let runner = self.commandRunner {
             var mself = self
-//            NSLog("ivish root subcommand: \(subcmd)")
-            ret = runner(subcmd, &mself)
+            ret = runner(cmd, &mself)
         } else {
-            ret = self.runCommand(subcmd)
+            ret = self.runCommand(cmd)
         }
         
         return ret
@@ -1032,25 +1044,93 @@ extension CharacterSet {
                 Self.shellPathSeparator)))
 }
 
+private extension UnsafeMutablePointer where Pointee == FILE {
+    func close() {
+        fclose(self)
+    }
+}
+
 extension Shell {
     private static let rootAliases = Aliases()
+    private typealias FilePtr = UnsafeMutablePointer<FILE>
+    
+    private struct FileRedirectInfo {
+        let command: String
+        let inFile: FilePtr?
+        let outFile: FilePtr?
+        let errFile: FilePtr?
+        
+        func cleanup() {
+            self.inFile?.close()
+            self.outFile?.close()
+            if self.errFile != self.outFile {
+                self.errFile?.close()
+            }
+        }
+        
+        var hasRedirection: Bool {
+            return self.inFile != nil || self.outFile != nil || self.errFile != nil
+        }
+    }
+    
+    private static func fileRedirectInfo(from cmd: String) -> FileRedirectInfo {
+        var command = cmd
+        var inFile: FilePtr?
+        var outFile: FilePtr?
+        var errFile: FilePtr?
+        if cmd.first == "(" {
+            var rdIdx: String.Index?
+            if let rdOutIdx = cmd.lastIndex(of: ">") {
+                let filePath = cmd[cmd.index(after: rdOutIdx)...].trimmingCharacters(in: .whitespaces)
+                let filePtr = fopen(filePath, "w")
+                outFile = filePtr
+                errFile = filePtr
+                rdIdx = rdOutIdx
+            } else if let rdInIdx = cmd.lastIndex(of: "<") {
+                let filePath = cmd[cmd.index(after: rdInIdx)...].trimmingCharacters(in: .whitespaces)
+                let filePtr = fopen(filePath, "r")
+                inFile = filePtr
+                rdIdx = rdInIdx
+            }
+            if let idx = rdIdx,
+               let cpIdx = cmd[..<idx].lastIndex(of: ")") {
+                command = String(cmd[cmd.index(after: cmd.startIndex)..<cpIdx])
+            }
+        }
+        
+        return .init(command: command,
+                     inFile: inFile,
+                     outFile: outFile,
+                     errFile: errFile)
+    }
     
     @objc public class func runRootCommand(_ cmd: String,
-                                           stdoutFileNo: Int32,
-                                           stderrFileNo: Int32,
+                                           inFile: UnsafeMutablePointer<FILE>,
+                                           outFile: UnsafeMutablePointer<FILE>,
+                                           errFile: UnsafeMutablePointer<FILE>,
                                            callbacks: UnsafeMutableRawPointer?,
                                            runner: @escaping (String, UnsafeRawPointer?) -> Int32) -> Int32 {
         let ret: Int32
         if cmd == shellName {
             ret = runner(cmd, nil)
         } else {
-            let shell = Shell(stdoutFileNo: stdoutFileNo,
-                              stderrFileNo: stderrFileNo,
+            let info = self.fileRedirectInfo(from: cmd)
+            let stdoutFile = info.outFile ?? outFile
+            let stderrFile = info.errFile ?? errFile
+            if info.hasRedirection {
+                ios_setStreams(info.inFile ?? inFile,
+                               stdoutFile,
+                               stderrFile)
+            }
+            let shell = Shell(stdoutFileNo: fileno(stdoutFile),
+                              stderrFileNo: fileno(stderrFile),
                               aliases: Self.rootAliases,
                               callbacks: callbacks,
                               runner: runner)
             shell.startFromTerminal = false
-            ret = shell.runAsRootCmd(cmd)
+//            NSLog("ivish root command: \(info)")
+            ret = shell.runAsRootCmd(info.command)
+            info.cleanup()
         }
         
         return ret
