@@ -61,8 +61,6 @@ public class Shell: NSObject {
     typealias CommandRunner = (String, UnsafeRawPointer?) -> Int32
     private var commandRunner: CommandRunner?
     
-    var startFromTerminal = true
-    
     @objc public override init() {
         let context = ios_getContext()?.bindMemory(to: ivish_context_t.self, capacity: 1)
         self.callbacks = context?.pointee.callbacks
@@ -510,9 +508,9 @@ extension Shell {
         if !force &&
             target != self.outputFileNo &&
             (!self.isSubshell ||
-             (ios_isatty(self.outputFileNo) != 0 && ios_isatty(target) != 0)) {
+             (self.outputFileNo.isTTY && target.isTTY)) {
             // this is a trick to do best to output to stderr and stdout
-            // in order, by outputing stderr to stdout
+            // in order, by outputting stderr to stdout
             target = self.outputFileNo
         }
         str.write(to: target)
@@ -764,6 +762,12 @@ extension Shell {
     }
 }
 
+extension Int32 {
+    var isTTY: Bool {
+        return ios_isatty(self) != 0
+    }
+}
+
 extension Shell {
     private func handleNestingShell(_ tokens: CmdTokens) throws {
         if tokens.first == shellName {
@@ -793,27 +797,23 @@ extension Shell {
         return handled
     }
     
-    private var hasTerminal: Bool {
-        return self.parentShell?.startFromTerminal ?? self.startFromTerminal
-    }
-    
     private func showMsg(_ msg: String,
                          in color: Int,
                          bold: Bool? = nil,
                          to targetFileNo: Int32,
                          force: Bool = false) {
         let content = "\(shellName): \(msg)\n"
-        let colorized: String
-        if !self.hasTerminal {
-            colorized = content
+        let finalCnt: String
+        if !targetFileNo.isTTY {
+            finalCnt = content
         } else if let isBold = bold {
             // show in normal mode
-            colorized = content.termColorized(color, bold: isBold)
+            finalCnt = content.termColorized(color, bold: isBold)
         } else {
             // in 256 colors
-            colorized = content.term256Colorized(color)
+            finalCnt = content.term256Colorized(color)
         }
-        self.putString(colorized, to: targetFileNo, force: force)
+        self.putString(finalCnt, to: targetFileNo, force: force)
     }
     
     private func showError(_ msg: String, force: Bool = false) {
@@ -1122,12 +1122,20 @@ extension Shell {
                                stdoutFile,
                                stderrFile)
             }
-            let shell = Shell(stdoutFileNo: fileno(stdoutFile),
-                              stderrFileNo: fileno(stderrFile),
+            let stdoutFileNo = fileno(stdoutFile)
+            let stderrFileNo = fileno(stderrFile)
+            // make outputs non-TTY
+            ios_addNonTTYFileNo(stdoutFileNo)
+            ios_addNonTTYFileNo(stderrFileNo)
+            if let inFile = info.inFile {
+                ios_addNonTTYFileNo(fileno(inFile))
+            }
+            // make the dummy root shell
+            let shell = Shell(stdoutFileNo: stdoutFileNo,
+                              stderrFileNo: stderrFileNo,
                               aliases: Self.rootAliases,
                               callbacks: callbacks,
                               runner: runner)
-            shell.startFromTerminal = false
 //            NSLog("ivish root command: \(info)")
             ret = shell.runAsRootCmd(info.command)
             info.cleanup()
