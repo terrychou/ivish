@@ -120,7 +120,7 @@ extension CmdLineTokenizer {
             var startEscaping = false
             let wasNotToken = self.accum == nil
             try self.handle(element: element,
-                            at: index,
+                            at: &index,
                             startEscaping: &startEscaping)
             let isTokenStart = wasNotToken && self.accum != nil
             if startEscaping {
@@ -171,7 +171,7 @@ extension CmdLineTokenizer {
     }
 
     private func handle(element: Element,
-                        at index: String.Index,
+                        at index: inout String.Index,
                         startEscaping: inout Bool) throws {
         if let esc = self.escaping {
             // escaping
@@ -187,12 +187,15 @@ extension CmdLineTokenizer {
         } else if element.isWhitespace {
             // skip whitespace and harvest possible token
             self.harvest()
-        } else if let delimiter = Delimiter(rawValue: element) {
-            self.collectDelimiter(delimiter, at: index)
         } else {
-            // accumulate others
-            self.prepareAccum()
-            self.accum!.append(element)
+            let oldIndex = index
+            if let delimiter = Delimiter(line: self.line, index: &index) {
+                self.collectDelimiter(delimiter, at: oldIndex)
+            } else {
+                // accumulate others
+                self.prepareAccum()
+                self.accum!.append(element)
+            }
         }
     }
     
@@ -230,12 +233,39 @@ extension CmdLineTokenizer {
         let content: String
     }
     
-    enum Delimiter: Character {
-        case pipe = "|"    // pipe
-        case command = ";" // command separator
+    enum Delimiter: String {
+        case pipe = "|"      // pipe
+        case pipeErrRedi = "|&"  // error redirected pipe
+        case command = ";"   // command separator
         
         var str: String {
-            return String(self.rawValue)
+            return self.rawValue
+        }
+        
+        init?(line: String, index: inout String.Index) {
+            var token: Self?
+            // try two characters first
+            let nextIndex = line.index(after: index)
+            if nextIndex != line.endIndex {
+                let s = String(line[index...nextIndex])
+                if let t = Self(rawValue: s) {
+                    token = t
+                    // advance the index
+                    index = nextIndex
+                }
+            }
+            // try one character if not found in two
+            if token == nil {
+                let s = String(line[index])
+                if let t = Self(rawValue: s) {
+                    token = t
+                }
+            }
+            if let t = token {
+                self = t
+            } else {
+                return nil
+            }
         }
     }
     
@@ -246,6 +276,10 @@ extension CmdLineTokenizer {
         
         var leftIsEmpty: Bool {
             return self.soFarTokensRange.isEmpty
+        }
+        
+        var count: Int {
+            return self.delimiter.str.count
         }
     }
 }
@@ -294,7 +328,7 @@ extension CmdLineTokenizer.Result {
             }
             stop = false
             let subLine = String(self.line[startIndex..<del.index])
-            startIndex = self.line.index(after: del.index)
+            startIndex = self.line.index(del.index, offsetBy: del.count)
             try enumerator(subLine, del, &stop)
             if stop {
                 break
@@ -357,7 +391,7 @@ extension CmdLineTokenizer.Result {
     private func validate(delimiter: DelimiterInfo, next: DelimiterInfo?) -> Bool {
         let validator: DelimiterValidator
         switch delimiter.delimiter {
-        case .pipe: validator = self.validatePipe(_:next:)
+        case .pipe, .pipeErrRedi: validator = self.validatePipe(_:next:)
         case .command: validator = self.validateCommandSeparator(_:next:)
         }
         

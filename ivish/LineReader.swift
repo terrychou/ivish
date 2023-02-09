@@ -191,7 +191,7 @@ extension CmdLineTokenizer.Delimiter {
     private var hintColorEnvName: String {
         let ret: String
         switch self {
-        case .pipe: ret = .envInvalidPipeDelimiter
+        case .pipe, .pipeErrRedi: ret = .envInvalidPipeDelimiter
         case .command: ret = .envInvalidCommandSeparator
         }
         
@@ -220,13 +220,18 @@ extension LineReader {
         if let result = try? CmdLineTokenizer(line: lineState.buffer).tokenize() {
             let cursor = lineState.location
             // hint items for invalid delimiters
+            let line = lineState.buffer
             for d in result.invalidDelimiters() {
-                let item = HintItem(index: d.index,
-                                    color: d.delimiter.hintColor)
-                if d.index < cursor {
-                    beforeCursor.append(item)
-                } else {
-                    sinceCursor.append(item)
+                var index = d.index
+                let color = d.delimiter.hintColor
+                for i in 0..<d.count {
+                    index = line.index(index, offsetBy: i)
+                    let item = HintItem(index: index, color: color)
+                    if index < cursor {
+                        beforeCursor.append(item)
+                    } else {
+                        sinceCursor.append(item)
+                    }
                 }
             }
             // hint item for unfinished quote

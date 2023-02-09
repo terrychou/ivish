@@ -710,11 +710,11 @@ extension Shell {
         // run subcommand by subcommand
         var subcmd = ""
         var piped = false
-        tokenized.enumerateDelimited(delimiters: [.pipe, .command]) { subline, delimiter, stop in
+        tokenized.enumerateDelimited(delimiters: [.pipe, .pipeErrRedi, .command]) { subline, delimiter, stop in
             switch delimiter?.delimiter {
-            case .pipe?:
+            case .pipe?, .pipeErrRedi?:
                 piped = true
-                subcmd += self.pipedSubline(subline) + " | "
+                subcmd += self.pipedSubline(subline) + delimiter!.delimiter.str
             case .command?, nil:
                 if piped {
                     subcmd += self.pipedSubline(subline)
