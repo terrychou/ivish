@@ -95,6 +95,7 @@ public class Shell: NSObject {
 
 extension Shell {
     private func initShell() {
+        self.readRootAliases()
         self.setupLineReaders()
         self.setupCellsCaculator()
         self.setupPipes()
@@ -103,6 +104,10 @@ extension Shell {
         self.setupCompleter()
         self.setupLineReaderCallbacks()
         self.loadHistory()
+    }
+    
+    private func readRootAliases() {
+        self.aliases.import(from: Self.rootAliases)
     }
     
     private func setupLineReaders() {
