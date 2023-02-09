@@ -804,7 +804,7 @@ extension Shell {
                          force: Bool = false) {
         let content = "\(shellName): \(msg)\n"
         let finalCnt: String
-        if !targetFileNo.isTTY {
+        if self.isSubshell && !targetFileNo.isTTY {
             finalCnt = content
         } else if let isBold = bold {
             // show in normal mode
