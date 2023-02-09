@@ -171,9 +171,21 @@ extension Shell {
         self.cmdPipeWriteFd = p.output
     }
     
+    private func availableAliases(for pattern: String) -> [String] {
+        return self.aliases.allNames().filter {
+            $0.hasPrefix(pattern)
+        }
+    }
+    
+    private func availableCommands(completing pattern: String) -> [String] {
+        let commands = InternalCommand.commands(for: pattern) + self.availableCommands(for: pattern) + self.availableAliases(for: pattern)
+        
+        return Set(commands).sorted()
+    }
+    
     private func setupCompleter() {
         let helper = CompletionHelper(availableCommands: {
-            (InternalCommand.commands(for: $0) + self.availableCommands(for: $0)).sorted()
+            self.availableCommands(completing: $0)
         }, filenames: self.expandFilenames)
         self.completer = Completer(helper: helper)
     }
