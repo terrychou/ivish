@@ -81,10 +81,12 @@ extension Aliases {
                 // if replacement ends with a whitespace char
                 // then try to parse the next name
                 var nextHistory = TransHistory()
-                ret = replacement + " " + self.translate(cmdline: rest, history: &nextHistory)
+                ret = replacement + self.translate(cmdline: rest, history: &nextHistory)
             } else {
                 ret = replacement + rest
             }
+            // keep the original prefix whitespaces of an alias
+            ret = cmdline.prefixWhitespaces + ret
         }
         
         return ret
@@ -138,6 +140,10 @@ private extension String {
         let right = result.rest
         
         return (left, right)
+    }
+    
+    var prefixWhitespaces: String {
+        return String(self.prefix { $0.isWhitespace })
     }
 }
 
