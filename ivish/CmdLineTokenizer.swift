@@ -233,7 +233,7 @@ extension CmdLineTokenizer {
         let content: String
     }
     
-    enum Delimiter: String {
+    enum Delimiter: String, CaseIterable {
         case pipe = "|"      // pipe
         case pipeErrRedi = "|&"  // error redirected pipe
         case command = ";"   // command separator
@@ -294,26 +294,7 @@ extension CmdLineTokenizer.Result {
         return ret
     }
     
-    typealias DelimiterInfo = CmdLineTokenizer.DelimiterInfo
-    typealias SubcmdLineEnumerator = (String, DelimiterInfo?, inout Bool) -> Void
-    func enumerateSubcmdLines(_ enumerator: SubcmdLineEnumerator) {
-        var stop = false
-        var startIndex = self.line.startIndex
-        for del in self.delimiters {
-            stop = false
-            let subcmdLine = String(self.line[startIndex..<del.index])
-            startIndex = self.line.index(after: del.index)
-            enumerator(subcmdLine, del, &stop)
-            if stop {
-                break
-            }
-        }
-        if !stop {
-            let lastSubcmdLine = String(self.line[startIndex...])
-            enumerator(lastSubcmdLine, nil, &stop)
-        }
-    }
-    
+    typealias DelimiterInfo = CmdLineTokenizer.DelimiterInfo    
     /// enumerate sublines that are delimited by any of `delimiters`
     typealias Delimiter = CmdLineTokenizer.Delimiter
     /// delimited enumerator: (subline, delimiter info, stop enumerating)

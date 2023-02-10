@@ -106,7 +106,8 @@ extension Aliases {
         let result = try! CmdLineTokenizer(line: cmdline).tokenize()
         var ret = ""
         var didTranslate = false
-        result.enumerateSubcmdLines { line, delimiter, _ in
+        let delimiters = Set(CmdLineTokenizer.Delimiter.allCases)
+        result.enumerateDelimited(delimiters: delimiters) { line, delimiter, _ in
             let translated: String
             if let trans = self.translateCmdline(line) {
                 didTranslate = true
