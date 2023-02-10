@@ -558,13 +558,25 @@ extension Shell {
         self.putString("\n")
     }
     
+    private var shouldForcePromptToStderr: Bool {
+        var ret = true
+        if let lr = self.lnReader, lr.keptLineState != nil {
+            // to work around the problem that display of
+            // command candidates of non-empty input would
+            // cause the prompt misplaced, e.g. `pwd;$`
+            ret = false
+        }
+        
+        return ret
+    }
+    
     @objc public func start() -> Int32 {
         if self.lnReader == nil || self.cmdLnReader == nil {
             return 1// failed to create necessary pipes
         }
         while !self.done {
             do {
-                self.putString(self.prompt, to: self.errorFileNo, force: true)
+                self.putString(self.prompt, to: self.errorFileNo, force: self.shouldForcePromptToStderr)
                 let line = try self.lnReader!.readline()
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 self.putString("\n")

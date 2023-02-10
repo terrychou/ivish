@@ -128,8 +128,13 @@ public extension CompletionInfo {
         var type: CompletionType = .command
         var quote: Character?
         var backslashed = false
+        var index = line.startIndex
         
-        for c in line {
+        while index != line.endIndex {
+            let c = line[index]
+            defer {
+                index = line.index(after: index)
+            }
             if backslashed {
                 // the previous is backslash
                 pattern.append(c)
@@ -156,7 +161,7 @@ public extension CompletionInfo {
                     type = .filename
                 }
                 continue
-            } else if c == "|" {
+            } else if let _ = CmdLineTokenizer.Delimiter(line: line, index: &index) {
                 type = .command
                 pattern = ""
             } else if c == "-" {
