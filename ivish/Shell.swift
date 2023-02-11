@@ -1140,10 +1140,15 @@ extension Shell {
                                            callbacks: UnsafeMutableRawPointer?,
                                            runner: @escaping (String, UnsafeRawPointer?) -> Int32) -> Int32 {
         let ret: Int32
-        if cmd == shellName {
-            ret = runner(cmd, nil)
+        let tokenized = cmd.commandTokens(count: 1)
+        if let name = tokenized.token(at: 0), name == shellName {
+            // prevent users from running shell from command window
+            let msg = "running \(shellName) from command window is not supported, use \":terminal\" instead.\n"
+            msg.write(to: fileno(errFile))
+            ret = 1
         } else {
-            let info = self.fileRedirectInfo(from: cmd)
+            let command = cmd.trimmingCharacters(in: .whitespaces)
+            let info = self.fileRedirectInfo(from: command)
             let stdoutFile = info.outFile ?? outFile
             let stderrFile = info.errFile ?? errFile
             if info.hasRedirection {
