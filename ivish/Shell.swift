@@ -620,6 +620,10 @@ extension Shell {
                 ret = self.runSubcommand(cmdline, piped: false)
             } else {
                 NSLog("ivish ignore non-subshell with arguments")
+                if let te = thread_stderr {
+                    let msg = "\(shellName) with arguments is not supported yet."
+                    msg.write(to: fileno(te))
+                }
             }
         }
         self.cleanup()
